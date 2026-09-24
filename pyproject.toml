@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gold-model"
+version = "0.1.0"
+description = "Leakage-aware research for Kalshi 15-minute gold probabilities"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.1", "pandas>=2.2", "scipy>=1.14", "scikit-learn>=1.6",
+  "httpx>=0.28", "sqlalchemy>=2.0", "pydantic>=2.10", "pydantic-settings>=2.7",
+  "typer>=0.15", "rich>=13.9", "joblib>=1.4", "cryptography>=44",
+]
+
+[project.optional-dependencies]
+comex = ["databento>=0.64"]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.25", "ruff>=0.11"]
+
+[project.scripts]
+gold-model = "gold_model.cli.main:app"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gold_model"]
