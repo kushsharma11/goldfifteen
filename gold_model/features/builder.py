@@ -124,6 +124,12 @@ class FeatureBuilder:
         spot_age = (at - latest.timestamp).total_seconds()
         if spot_age > self.spot_max_age_seconds or latest.delayed:
             raise FeatureUnavailable("Pyth price is stale or delayed")
+        # A configured feed change must warm up its own history. Different
+        # references/providers can have a level basis that creates fake returns.
+        known_spot = [
+            point for point in known_spot
+            if (point.provider, point.feed_id) == (latest.provider, latest.feed_id)
+        ]
         features: dict[str, float | None] = dict.fromkeys(FEATURE_COLUMNS)
         price, target = float(latest.price), float(market.target_price)
         features.update(
@@ -158,7 +164,10 @@ class FeatureBuilder:
             latest_comex = known_comex[-1]
             age = (at - latest_comex.timestamp).total_seconds()
             if not latest_comex.delayed and age <= self.comex_max_age_seconds:
-                real_time = [point for point in known_comex if not point.delayed]
+                real_time = [
+                    point for point in known_comex
+                    if not point.delayed and point.provider == latest_comex.provider
+                ]
                 features["current_comex_price"] = float(latest_comex.price)
                 features["comex_age_seconds"] = age
                 for name, seconds in RETURN_HORIZONS.items():
@@ -181,7 +190,9 @@ class FeatureBuilder:
         ]
         if not eligible:
             return
-        book = max(eligible, key=lambda item: (item.timestamp, item.available_at))
+        # For identical clocks, the last supplied immutable revision wins,
+        # matching price and market-version selection.
+        book = max(reversed(eligible), key=lambda item: (item.timestamp, item.available_at))
         age = (at - book.timestamp).total_seconds()
         features["book_age_seconds"] = age
         if age > self.book_max_age_seconds:

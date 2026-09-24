@@ -194,7 +194,7 @@ class Database:
     def prices(self, kind: Literal["spot", "comex"] = "spot", *,
                start: datetime | None = None, end: datetime | None = None) -> list[PricePoint]:
         table = SpotObservation if kind == "spot" else ComexObservation
-        query = select(table).order_by(table.timestamp, table.available_at)
+        query = select(table).order_by(table.timestamp, table.available_at, table.id)
         if start is not None:
             query = query.where(table.timestamp >= as_utc(start))
         if end is not None:
@@ -212,7 +212,7 @@ class Database:
     def books(self, market_id: str | None = None, *,
               start: datetime | None = None, end: datetime | None = None) -> list[BookSnapshot]:
         table = OrderBookObservation
-        query = select(table).order_by(table.timestamp, table.available_at)
+        query = select(table).order_by(table.timestamp, table.available_at, table.id)
         if market_id:
             query = query.where(table.market_id == market_id)
         if start is not None:

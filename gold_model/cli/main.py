@@ -44,11 +44,51 @@ def show(value: Any) -> None:
     console.print_json(json.dumps(json_value(value), allow_nan=False))
 
 
+def show_probabilities(comparison: dict) -> None:
+    values = comparison.get("common_support", comparison)
+    table = Table(title="Probability performance — common support when available")
+    for column in ("Model", "Markets", "Brier score", "Log loss", "Accuracy"):
+        table.add_column(column, justify="left" if column == "Model" else "right")
+    for name, metrics in values.items():
+        if isinstance(metrics, dict) and "brier_score" in metrics:
+            table.add_row(name, str(metrics["markets"]), f'{metrics["brier_score"]:.5f}',
+                          f'{metrics["log_loss"]:.5f}', f'{metrics["accuracy"]:.1%}')
+    console.print(table)
+    if "versus_market" in comparison:
+        show(comparison["versus_market"])
+
+
+def show_backtest(report: dict, directory: Path) -> None:
+    metrics = report["metrics"]
+    table = Table(title=report["evaluation"])
+    table.add_column("Measure")
+    table.add_column("Result", justify="right")
+    for name in ("mode", "trades", "yes_trades", "no_trades", "pass_count", "win_rate",
+                 "cumulative_pnl", "roi", "max_drawdown", "fees_included", "slippage_cents"):
+        value = metrics.get(name)
+        text = "unavailable" if value is None else f"{value:.2%}" if name in {"win_rate", "roi"} else f"{value:.2f}" if isinstance(value, float) else str(value)
+        table.add_row(name.replace("_", " "), text)
+    console.print(table)
+    show_probabilities(metrics["probability_comparison"])
+    thresholds = Table(title="Threshold sensitivity — descriptive, not a selection rule")
+    for column in ("Edge", "Trades", "Win rate", "P&L ($)", "ROI", "Max drawdown ($)"):
+        thresholds.add_column(column, justify="right")
+    for row in report["thresholds"]:
+        thresholds.add_row(f'{row["min_edge"]:.0%}', str(row["trades"]),
+                           "—" if row["win_rate"] is None else f'{row["win_rate"]:.1%}',
+                           f'{row["cumulative_pnl"]:.2f}',
+                           "—" if row["roi"] is None else f'{row["roi"]:.1%}',
+                           f'{row["max_drawdown"]:.2f}')
+    console.print(thresholds)
+    console.print(f"Detailed reports: {directory.resolve()}")
+    console.print(metrics["execution_assumption"])
+
+
 def guarded(operation: Callable[[], Any]) -> Any:
     try:
         return operation()
     except (ValueError, RuntimeError, OSError) as exc:
-        console.print(f"[red]Unable to complete:[/red] {exc}", markup=False)
+        console.print(f"Unable to complete: {exc}", style="red", markup=False)
         raise typer.Exit(1) from None
 
 
@@ -143,15 +183,26 @@ def train(model: Annotated[str, typer.Argument(help="baseline or logistic")],
           features: Annotated[str | None, typer.Option(help="Comma-separated feature list for ablation")] = None,
           calibration: Annotated[str, typer.Option(help="sigmoid, isotonic, or none")] = "sigmoid") -> None:
     """Train on chronological market groups, calibrate later, evaluate held-out last."""
-    guarded(lambda: show(research.train(settings(), model,
-                                        features=features.split(",") if features else None,
-                                        calibration=calibration)))
+    def run():
+        config = settings()
+        metadata = research.train(config, model, features=features.split(",") if features else None,
+                                  calibration=calibration)
+        show({key: metadata[key] for key in ("model_version", "model_type", "feature_list",
+                                            "training_start", "training_end", "calibration_method",
+                                            "test_evaluation") if key in metadata})
+        console.print(f"Model artifacts: {config.model_path.parent.resolve()}")
+    guarded(run)
 
 
 @app.command()
 def evaluate(model: str = "logistic") -> None:
     """Compare held-out Brier/log loss and reliability with baseline and Kalshi."""
-    guarded(lambda: show(research.evaluate(settings(), model)))
+    def run():
+        config = settings()
+        report = research.evaluate(config, model)
+        show_probabilities(report["probability_comparison"])
+        console.print(f"Reliability bins and full report: {(config.report_dir / 'evaluation.json').resolve()}")
+    guarded(run)
 
 
 @app.command()
@@ -166,9 +217,10 @@ def backtest(model: str = "logistic", walk_forward: bool = False, idealized: boo
         config = settings()
         if bankroll is not None:
             config = config.model_copy(update={"bankroll": bankroll})
-        show(research.backtest(config, model, walk_forward=walk_forward, idealized=idealized,
-                              min_train_markets=min_train_markets, calibration_markets=calibration_markets,
-                              test_markets=test_markets, features=features.split(",") if features else None))
+        report = research.backtest(config, model, walk_forward=walk_forward, idealized=idealized,
+                                   min_train_markets=min_train_markets, calibration_markets=calibration_markets,
+                                   test_markets=test_markets, features=features.split(",") if features else None)
+        show_backtest(report, config.report_dir)
     guarded(run)
 
 

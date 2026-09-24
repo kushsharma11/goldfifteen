@@ -63,7 +63,8 @@ def test_train_calibrate_serialize_and_missing_features(tmp_path):
     path = model.save(tmp_path / "model.joblib")
     metadata = json.loads(path.with_suffix(".joblib.json").read_text())
     assert metadata["feature_list"][0] == "baseline_logit"
-    assert "test_metrics" in metadata
+    assert "test_metrics" not in metadata
+    assert "not evaluated during training" in metadata["test_evaluation"]
     assert metadata["calibration_labels_available_at"] <= metadata["test_start"]
     with pytest.raises(ValueError, match="execute code"):
         LogisticModel.load(path)
@@ -96,6 +97,14 @@ def test_training_and_calibration_are_not_affected_by_test_labels():
     np.testing.assert_allclose(model.predict_proba(split.test), other.predict_proba(split.test))
 
 
+def test_training_does_not_score_reserved_test_rows():
+    original = dataset()
+    split = chronological_split(original)
+    original.loc[original.market_id.isin(split.test.market_id), "gold_return_30s"] = np.nan
+    model, _ = train_logistic(original)
+    assert "test_metrics" not in model.metadata
+
+
 def test_equal_market_weighting_and_probability_comparison():
     metrics = probability_metrics([1, 1, 0], [.8, .8, .8], ["a", "a", "b"])
     assert metrics["brier_score"] == pytest.approx((.04 + .64) / 2)
@@ -105,6 +114,9 @@ def test_equal_market_weighting_and_probability_comparison():
     comparison = compare_probabilities(frame)
     assert comparison["common_support"]["logistic"]["snapshots"] == len(frame) - 1
     assert comparison["common_support"]["market"]["snapshots"] == len(frame) - 1
+    assert comparison["relative_to_market"]["logistic"]["brier_difference_vs_market"] < 0
+    baseline = compare_probabilities(frame, "baseline")
+    assert "logistic" not in baseline
 
 
 def test_walk_forward_only_predicts_later_disjoint_markets():

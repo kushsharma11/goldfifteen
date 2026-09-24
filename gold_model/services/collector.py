@@ -41,6 +41,8 @@ class Collector:
 
         async def collect(name: str) -> tuple[str, dict]:
             try:
+                if name == "comex" and self.settings.comex_provider == "disabled":
+                    return name, {"disabled": True, "reason": "COMEX_PROVIDER=disabled"}
                 provider = self.provider(name)
                 if name != "kalshi":
                     point = await provider.latest_price()

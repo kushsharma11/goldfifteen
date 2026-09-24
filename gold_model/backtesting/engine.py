@@ -139,17 +139,21 @@ def run_backtest(frame: pd.DataFrame, config: BacktestConfig | None = None) -> B
         traded_markets.add(market_id)
         heapq.heappush(pending, (row["label_available_at"], len(trades) - 1))
     settle_through(None)
-    trade_frame = pd.DataFrame(trades)
+    trade_frame = pd.DataFrame(trades, columns=[
+        "timestamp", "market_id", "side", "settled_at", "label", "won", "probability_yes",
+        "estimated_edge", "contracts", "execution_price", "risk_dollars", "fee_dollars",
+        "payout", "pnl", "seconds_remaining", "utc_hour", "volatility_regime",
+    ])
     decisions_frame = pd.DataFrame(decisions)
     metrics = trading_metrics(trade_frame, decisions_frame, equity, config.initial_bankroll)
     metrics.update({"mode": config.mode, "fees_included": config.costs.include_fees,
                     "fee_per_contract": config.costs.fee_per_contract, "quadratic_fee_rate": config.costs.quadratic_fee_rate,
                     "fee_rounding": "Up to nearest cent per order", "slippage_cents": config.costs.slippage_cents,
-                    "min_edge": config.min_edge, "probability_comparison": compare_probabilities(data),
+                    "min_edge": config.min_edge, "probability_comparison": compare_probabilities(data, frame.attrs.get("selected_model_name", "logistic")),
                     "execution_assumption": "Top-of-book ask and displayed size; no queue position or latency guarantee" if config.mode == "executable" else "IDEALIZED midpoint fills without historical depth; not executable profitability",
                     "volatility_regime_basis": "Prior 1000 snapshots' volatility tertiles; first ten snapshots unknown",
                     "evaluation_note": "Caller must supply held-out or walk-forward predictions; thresholds are descriptive sensitivity, not optimized choices"})
-    return BacktestResult(trade_frame, decisions_frame, metrics, pd.DataFrame(equity))
+    return BacktestResult(trade_frame, decisions_frame, metrics, pd.DataFrame(equity, columns=["timestamp", "settlement_equity", "available_cash"]))
 
 
 def threshold_sweep(frame: pd.DataFrame, thresholds=(.01, .02, .03, .05, .07, .10, .15), config: BacktestConfig | None = None) -> pd.DataFrame:

@@ -12,7 +12,7 @@ from gold_model.features.builder import FeatureBuilder, FeatureUnavailable
 from gold_model.models.baseline import BaselineModel
 from gold_model.trading.edge import CostConfig, Signal, calculate_signal
 from gold_model.trading.sizing import PositionSize, SizingConfig, size_position
-from gold_model.utils.time import utc_now
+from gold_model.utils.time import as_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ class Predictor:
 
     def predict(self, *, at: datetime | None = None, market_id: str | None = None,
                 bankroll: float | None = None) -> LivePrediction:
-        at = at or utc_now()
+        at = as_utc(at) if at is not None else utc_now()
         versions = [m for m in self.database.markets(market_id) if m.available_at <= at]
         latest = {m.market_id: m for m in versions}
         active = [m for m in latest.values() if m.start_time <= at < m.end_time and m.status in {"open", "active"}]

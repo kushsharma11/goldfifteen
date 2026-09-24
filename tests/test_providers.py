@@ -20,6 +20,12 @@ FEED = "a" * 64
 START = datetime(2025, 1, 2, 14, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def isolated_provider_environment(monkeypatch):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+
+
 def settings(**kwargs):
     return Settings(_env_file=None, provider_min_interval_seconds=0, request_retries=0, **kwargs)
 

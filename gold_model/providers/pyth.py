@@ -43,6 +43,8 @@ class PythProvider(HTTPProvider):
         if len(matches) != 1:
             raise ProviderError("Pyth XAU/USD feed discovery was ambiguous or empty; configure PYTH_FEED_ID")
         self._discovered_feed_id = str(matches[0]).removeprefix("0x").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", self._discovered_feed_id):
+            raise ProviderError("Pyth feed discovery returned an invalid feed identifier")
         return self._discovered_feed_id
 
     def _normalize(

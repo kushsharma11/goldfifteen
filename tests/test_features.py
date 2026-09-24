@@ -169,6 +169,27 @@ def test_future_and_late_comex_ticks_cannot_change_returns():
     )
 
 
+@pytest.mark.parametrize("identity", [{"feed_id": "new-feed"}, {"provider": "other-spot"}])
+def test_spot_feed_or_provider_change_requires_its_own_volatility_warmup(identity):
+    history = prices()
+    switched = history[-1].model_copy(update={"price": 9999.0, **identity})
+    with pytest.raises(FeatureUnavailable, match="Insufficient"):
+        FeatureBuilder().build(AT, market(), history + [switched])
+    new_history = [point.model_copy(update=identity) for point in prices(horizon=300)]
+    features = FeatureBuilder().build(AT, market(), history + new_history)
+    assert features["volatility_5m"] is not None
+    assert features["volatility_15m"] is None
+    assert features["volatility_60m"] is None
+
+
+def test_comex_provider_change_does_not_create_cross_provider_returns():
+    history = prices(provider="first-comex", contract="GCZ6")
+    switched = history[-1].model_copy(update={"provider": "second-comex", "price": 4999.0})
+    features = FeatureBuilder().build(AT, market(), prices(), history + [switched])
+    assert features["comex_return_10s"] is None
+    assert features["comex_return_5m"] is None
+
+
 def test_stale_book_retains_age_but_no_executable_quotes():
     features = FeatureBuilder().build(AT, market(), prices(), books=[book(AT - timedelta(seconds=16))])
     assert features["book_age_seconds"] == 16

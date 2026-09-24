@@ -138,7 +138,7 @@ class HTTPProvider:
                 # A long server-directed pause belongs to the caller's next cycle.
                 if delay > 60:
                     raise ProviderError(f"{self.provider_name}: rate limited; retry after {delay:.0f}s", 429)
-            logger.warning("provider_retry", extra={"provider": self.provider_name, "attempt": attempt + 1})
+            logger.warning("provider_retry", extra={"context": {"provider": self.provider_name, "attempt": attempt + 1}})
             await asyncio.sleep(delay)
         raise AssertionError("Unreachable retry state")
 

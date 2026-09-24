@@ -66,7 +66,7 @@ class KalshiProvider(HTTPProvider):
             raise ProviderError(f"Kalshi market {market_id} is not a 15-minute open/close window; inspect its rules")
         strike_type = row.get("strike_type")
         target = None
-        if strike_type in ("greater", "greater_or_equal") and row.get("floor_strike") is not None:
+        if strike_type == "greater_or_equal" and row.get("floor_strike") is not None:
             target = float(row["floor_strike"])
         elif row.get("floor_strike") is not None:
             raise ProviderError(f"Unsupported Kalshi strike_type={strike_type!r}; cannot treat as at-or-above")
@@ -138,7 +138,7 @@ class KalshiProvider(HTTPProvider):
                     market = self._normalize_market(row, received_at, historical=historical)
                     markets.extend(self._historical_versions(market, received_at) if historical else [market])
                 except ProviderError as exc:
-                    logger.warning("market_rejected", extra={"provider": "kalshi", "reason": str(exc), "market_id": row.get("ticker")})
+                    logger.warning("market_rejected", extra={"context": {"provider": "kalshi", "reason": str(exc), "market_id": row.get("ticker")}})
             cursor = payload.get("cursor")
             if not cursor:
                 return markets

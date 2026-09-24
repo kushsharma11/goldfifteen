@@ -86,3 +86,19 @@ def test_future_book_timestamps_and_invalid_labels_rejected():
     bad = dict(row(), label_available_at=pd.Timestamp("2025-01-01", tz="UTC"))
     with pytest.raises(ValueError, match="before market expiration"):
         run_backtest(pd.DataFrame([bad]), config())
+
+
+def test_prediction_training_availability_cannot_be_after_prediction():
+    bad = dict(row(), trained_through=pd.Timestamp("2025-01-02", tz="UTC"))
+    with pytest.raises(ValueError, match="labels unavailable"):
+        run_backtest(pd.DataFrame([bad]), config())
+
+
+def test_simultaneous_settlements_are_one_equity_event():
+    # Same-time +$4 and -$6 have net -$2. They must not create a $6 path
+    # drawdown merely because one market's settlement was processed first.
+    first = row("a", label=1)
+    second = row("b", label=0)
+    result = run_backtest(pd.DataFrame([first, second]), config())
+    assert len(result.equity) == 1
+    assert result.metrics["max_drawdown"] == pytest.approx(2)

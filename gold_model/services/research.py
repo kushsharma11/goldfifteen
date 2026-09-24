@@ -55,14 +55,16 @@ def heldout_predictions(settings: Settings, kind: str = "logistic") -> pd.DataFr
         model = load_model(settings.model_path)
         used_ids = set(model.metadata["training_market_ids"]) | set(model.metadata["calibration_market_ids"])
         cutoff = pd.Timestamp(model.metadata["evaluation_cutoff"])
-        # Market starts must also be out of period; never score a partially
-        # overlapping market just because one late snapshot passed the cutoff.
-        groups = frame.groupby("market_id").agg(start=("market_start", "min"))
+        # Every snapshot in an eligible market must follow the availability
+        # cutoff. A prior window's delayed label may become available after the
+        # next market opens but before its first requested prediction snapshot.
+        groups = frame.groupby("market_id").agg(start=("timestamp", "min"))
         eligible_ids = set(groups.index[groups.start >= cutoff]) - used_ids
         frame = frame[frame.market_id.isin(eligible_ids)].copy()
         if frame.empty:
             raise ValueError("No held-out markets after the model's calibration label cutoff")
         frame["probability_yes"] = model.predict_proba(frame)
+        frame["trained_through"] = cutoff.isoformat()
         frame.attrs["model_version"] = model.version
     else:
         frame = chronological_split(frame).test.copy()
@@ -76,6 +78,7 @@ def heldout_predictions(settings: Settings, kind: str = "logistic") -> pd.DataFr
         if frame.empty:
             raise ValueError("No eligible held-out predictions")
         frame.attrs["model_version"] = kind
+    frame.attrs["selected_model_name"] = kind
     return frame
 
 
@@ -85,7 +88,7 @@ def evaluate(settings: Settings, kind: str = "logistic") -> dict:
         "evaluation": "chronological held-out markets",
         "model_version": frame.attrs.get("model_version"),
         "first_prediction": frame.timestamp.min(), "last_prediction": frame.timestamp.max(),
-        "probability_comparison": compare_probabilities(frame),
+        "probability_comparison": compare_probabilities(frame, kind),
         "provenance": frame.attrs.get("manifest"),
     }
     write_json(settings.report_dir / "evaluation.json", report)
@@ -122,6 +125,7 @@ def backtest(settings: Settings, kind: str = "logistic", *, walk_forward: bool =
         for name, column in (("baseline", "baseline_probability"), ("logistic" if kind == "logistic" else "selected", "probability_yes"), ("market", "kalshi_mid_probability")):
             candidate = common.copy()
             candidate["probability_yes"] = common[column]
+            candidate.attrs["selected_model_name"] = name
             comparison[name] = run_backtest(candidate, replace(config)).metrics
     report = {
         "evaluation": "walk-forward out-of-sample" if walk_forward else "chronological held-out markets",

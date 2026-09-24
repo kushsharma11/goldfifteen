@@ -38,8 +38,8 @@ def probability_metrics(labels, probabilities, market_ids=None, bins: int = 10) 
     }
 
 
-def compare_probabilities(frame: pd.DataFrame) -> dict:
-    columns = {"baseline": "baseline_probability", "logistic": "probability_yes", "market": "kalshi_mid_probability"}
+def compare_probabilities(frame: pd.DataFrame, model_name: str = "logistic") -> dict:
+    columns = {"baseline": "baseline_probability", model_name: "probability_yes", "market": "kalshi_mid_probability"}
     results = {}
     available = []
     for name, column in columns.items():
@@ -59,6 +59,21 @@ def compare_probabilities(frame: pd.DataFrame) -> dict:
     if available and common.any():
         rows = frame.loc[common]
         results["common_support"] = {name: probability_metrics(rows.label, rows[column], rows.market_id) for name, column in available}
+        shared = results["common_support"]
+        if "market" in shared:
+            differences = {}
+            for name, values in shared.items():
+                if name == "market":
+                    continue
+                brier_delta = values["brier_score"] - shared["market"]["brier_score"]
+                loss_delta = values["log_loss"] - shared["market"]["log_loss"]
+                assessment = "Mixed or tied probability results on this sample"
+                if brier_delta < 0 and loss_delta < 0:
+                    assessment = "Lower Brier score and log loss than market on this sample"
+                elif brier_delta > 0 and loss_delta > 0:
+                    assessment = "Higher Brier score and log loss than market on this sample"
+                differences[name] = {"brier_difference_vs_market": brier_delta, "log_loss_difference_vs_market": loss_delta, "assessment": assessment}
+            results["relative_to_market"] = differences
     results["interpretation"] = "Compare models on common_support. No outperformance claim or threshold optimization is inferred. Market midpoint is a probability benchmark, not a fill price."
     return results
 

@@ -52,6 +52,9 @@ def read_dataset(path: Path) -> pd.DataFrame:
     frame = pd.read_csv(path, dtype={"market_id": str})
     if frame.empty:
         raise ValueError("Dataset contains no eligible snapshots; inspect its manifest for skip reasons")
+    missing = {"market_id", "label", *DATE_COLUMNS} - set(frame.columns)
+    if missing:
+        raise ValueError(f"Dataset missing required columns: {sorted(missing)}")
     for name in DATE_COLUMNS:
         if name not in frame:
             raise ValueError(f"Dataset missing required timestamp column: {name}")

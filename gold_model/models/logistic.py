@@ -204,10 +204,9 @@ class LogisticModel:
 def train_logistic(frame: pd.DataFrame, **kwargs) -> tuple[LogisticModel, DatasetSplit]:
     split = chronological_split(frame)
     model = LogisticModel(**kwargs).fit(split.train, split.calibration)
-    from gold_model.backtesting.metrics import probability_metrics
-
-    model.metadata["test_metrics"] = probability_metrics(split.test.label.to_numpy(), model.predict_proba(split.test), split.test.market_id.to_numpy())
     model.metadata["test_start"] = split.test.timestamp.min().isoformat()
     model.metadata["test_end"] = split.test.timestamp.max().isoformat()
+    model.metadata["test_markets"] = int(split.test.market_id.nunique())
+    model.metadata["test_evaluation"] = "Reserved; not evaluated during training. Use evaluate/backtest explicitly."
     model.metadata["purged_market_ids"] = list(split.purged_market_ids)
     return model, split

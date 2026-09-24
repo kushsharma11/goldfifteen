@@ -102,6 +102,8 @@ class DatabentoComexProvider(HTTPProvider):
                 raw, received_at = await self._queue.get()
                 self.record_raw("live_trade", raw, received_at)
                 timestamp = _nanoseconds(raw["ts_event"])
+                if timestamp > received_at + timedelta(seconds=5):
+                    raise ProviderError("Databento trade timestamp is in the future; check local clock")
                 point = PricePoint(
                     timestamp=timestamp, available_at=max(timestamp, received_at),
                     price=raw["price"] * 1e-9, contract=_contract(self.settings),
@@ -142,6 +144,12 @@ class DatabentoComexProvider(HTTPProvider):
                 received_at = datetime.now(UTC)
                 if isinstance(record, db.TradeMsg):
                     raw = {name: int(getattr(record, name)) for name in ("ts_event", "ts_recv", "price", "size", "instrument_id", "sequence")}
+                    for name in ("publisher_id", "flags", "depth", "ts_in_delta"):
+                        if hasattr(record, name):
+                            raw[name] = int(getattr(record, name))
+                    for name in ("action", "side"):
+                        if hasattr(record, name):
+                            raw[name] = str(getattr(record, name))
                     raw["symbol"] = contract
                     loop.call_soon_threadsafe(self._enqueue, raw, received_at)
                 elif isinstance(record, db.ErrorMsg):
@@ -201,7 +209,7 @@ class DatabentoComexProvider(HTTPProvider):
                 await asyncio.to_thread(self._live.stop)
                 await asyncio.to_thread(self._live.block_for_close, timeout=5)
             except Exception:
-                logger.warning("comex_shutdown_failed", extra={"provider": self.provider_name})
+                logger.warning("comex_shutdown_failed", extra={"context": {"provider": self.provider_name}})
             self._live = None
         if self._consumer is not None:
             self._consumer.cancel()
