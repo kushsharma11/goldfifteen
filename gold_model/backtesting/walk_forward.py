@@ -32,18 +32,22 @@ def walk_forward_predict(
         raise ValueError("Not enough markets for walk-forward train, calibration, and test")
     predictions, folds = [], []
     for start in range(first_test, len(market_ids), test_markets):
-        train_ids = market_ids[:start - calibration_markets]
-        cal_ids = market_ids[start - calibration_markets:start]
-        test_ids = market_ids[start:start + test_markets]
+        train_ids = market_ids[: start - calibration_markets]
+        cal_ids = market_ids[start - calibration_markets : start]
+        test_ids = market_ids[start : start + test_markets]
         train = data[data.market_id.isin(train_ids)]
         cal = data[data.market_id.isin(cal_ids)]
         test = data[data.market_id.isin(test_ids)].copy()
         cal = _purge_before(cal, test.timestamp.min())
         if cal.empty:
-            raise ValueError(f"Fold {len(folds)} has no calibration markets after availability purging")
+            raise ValueError(
+                f"Fold {len(folds)} has no calibration markets after availability purging"
+            )
         train = _purge_before(train, cal.timestamp.min())
         if train.empty:
-            raise ValueError(f"Fold {len(folds)} has no training markets after availability purging")
+            raise ValueError(
+                f"Fold {len(folds)} has no training markets after availability purging"
+            )
         _guard_later(cal, test)
         model = LogisticModel(features, calibration_method, C).fit(train, cal)
         test["probability_yes"] = model.predict_proba(test)
@@ -51,8 +55,16 @@ def walk_forward_predict(
         test["fold"] = len(folds)
         test["trained_through"] = model.metadata["evaluation_cutoff"]
         predictions.append(test)
-        folds.append({"fold": len(folds), "training_markets": int(train.market_id.nunique()),
-                      "calibration_markets": int(cal.market_id.nunique()), "test_markets": int(test.market_id.nunique()),
-                      "test_market_ids": list(test_ids), "test_start": test.timestamp.min().isoformat(),
-                      "test_end": test.timestamp.max().isoformat(), "model_metadata": model.metadata})
+        folds.append(
+            {
+                "fold": len(folds),
+                "training_markets": int(train.market_id.nunique()),
+                "calibration_markets": int(cal.market_id.nunique()),
+                "test_markets": int(test.market_id.nunique()),
+                "test_market_ids": list(test_ids),
+                "test_start": test.timestamp.min().isoformat(),
+                "test_end": test.timestamp.max().isoformat(),
+                "model_metadata": model.metadata,
+            }
+        )
     return WalkForwardResult(pd.concat(predictions, ignore_index=True), folds)

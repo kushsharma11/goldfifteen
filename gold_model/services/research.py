@@ -21,20 +21,37 @@ logger = logging.getLogger(__name__)
 
 def load_model(path: Path) -> LogisticModel:
     if not path.exists():
-        raise ValueError(f"Model not found: {path}. Run train logistic first, or select --model baseline.")
+        raise ValueError(
+            f"Model not found: {path}. Run train logistic first, or select --model baseline."
+        )
     # CLI paths are operator-selected, trusted local artifacts. See README: never
     # point this command at downloaded/untrusted pickle or joblib files.
     return LogisticModel.load(path, trusted=True)
 
 
-def train(settings: Settings, kind: str, *, features: list[str] | None = None,
-          calibration: str = "sigmoid") -> dict:
+def train(
+    settings: Settings,
+    kind: str,
+    *,
+    features: list[str] | None = None,
+    calibration: str = "sigmoid",
+) -> dict:
     if kind == "baseline":
         metadata = {
-            "model_type": "normal_baseline", "model_version": BaselineModel.version,
-            "created_at": utc_now(), "training_period": None,
-            "features": ["current_gold_price", "target_price", "seconds_remaining", "volatility_5m"],
-            "parameters": {"distribution": "driftless normal arithmetic diffusion", "epsilon": 1e-6},
+            "model_type": "normal_baseline",
+            "model_version": BaselineModel.version,
+            "created_at": utc_now(),
+            "training_period": None,
+            "features": [
+                "current_gold_price",
+                "target_price",
+                "seconds_remaining",
+                "volatility_5m",
+            ],
+            "parameters": {
+                "distribution": "driftless normal arithmetic diffusion",
+                "epsilon": 1e-6,
+            },
             "note": "Analytical model; no parameters fitted to outcomes",
         }
         write_json(settings.model_path.parent / "baseline.json", metadata)
@@ -45,7 +62,10 @@ def train(settings: Settings, kind: str, *, features: list[str] | None = None,
     model, _ = train_logistic(frame, feature_names=features, calibration_method=calibration)
     model.metadata["dataset_provenance"] = frame.attrs.get("manifest", {})
     model.save(settings.model_path)
-    logger.info("training_run", extra={"context": {"version": model.version, "path": str(settings.model_path)}})
+    logger.info(
+        "training_run",
+        extra={"context": {"version": model.version, "path": str(settings.model_path)}},
+    )
     return model.metadata
 
 
@@ -53,7 +73,9 @@ def heldout_predictions(settings: Settings, kind: str = "logistic") -> pd.DataFr
     frame = read_dataset(settings.dataset_path)
     if kind == "logistic":
         model = load_model(settings.model_path)
-        used_ids = set(model.metadata["training_market_ids"]) | set(model.metadata["calibration_market_ids"])
+        used_ids = set(model.metadata["training_market_ids"]) | set(
+            model.metadata["calibration_market_ids"]
+        )
         cutoff = pd.Timestamp(model.metadata["evaluation_cutoff"])
         # Every snapshot in an eligible market must follow the availability
         # cutoff. A prior window's delayed label may become available after the
@@ -87,7 +109,8 @@ def evaluate(settings: Settings, kind: str = "logistic") -> dict:
     report = {
         "evaluation": "chronological held-out markets",
         "model_version": frame.attrs.get("model_version"),
-        "first_prediction": frame.timestamp.min(), "last_prediction": frame.timestamp.max(),
+        "first_prediction": frame.timestamp.min(),
+        "last_prediction": frame.timestamp.max(),
         "probability_comparison": compare_probabilities(frame, kind),
         "provenance": frame.attrs.get("manifest"),
     }
@@ -95,44 +118,67 @@ def evaluate(settings: Settings, kind: str = "logistic") -> dict:
     return report
 
 
-def backtest(settings: Settings, kind: str = "logistic", *, walk_forward: bool = False,
-             idealized: bool = False, min_train_markets: int = 20,
-             calibration_markets: int = 5, test_markets: int = 5,
-             features: list[str] | None = None) -> dict:
+def backtest(
+    settings: Settings,
+    kind: str = "logistic",
+    *,
+    walk_forward: bool = False,
+    idealized: bool = False,
+    min_train_markets: int = 20,
+    calibration_markets: int = 5,
+    test_markets: int = 5,
+    features: list[str] | None = None,
+) -> dict:
     folds = None
     if walk_forward:
         if kind != "logistic":
             raise ValueError("Walk-forward fitting requires --model logistic")
         dataset = read_dataset(settings.dataset_path)
-        result = walk_forward_predict(dataset, min_train_markets=min_train_markets,
-                                      calibration_markets=calibration_markets,
-                                      test_markets=test_markets, features=features)
+        result = walk_forward_predict(
+            dataset,
+            min_train_markets=min_train_markets,
+            calibration_markets=calibration_markets,
+            test_markets=test_markets,
+            features=features,
+        )
         frame, folds = result.predictions, result.folds
         frame.attrs["manifest"] = dataset.attrs.get("manifest")
     else:
         frame = heldout_predictions(settings, kind)
     config = BacktestConfig(
-        initial_bankroll=settings.bankroll, min_edge=settings.min_edge,
+        initial_bankroll=settings.bankroll,
+        min_edge=settings.min_edge,
         max_book_age_seconds=settings.book_max_age_seconds,
         mode="idealized" if idealized else "executable",
-        costs=cost_config(settings), sizing=sizing_config(settings),
+        costs=cost_config(settings),
+        sizing=sizing_config(settings),
     )
     result = run_backtest(frame, config)
     sweep = threshold_sweep(frame, config=config)
     comparison = {}
-    common = frame.dropna(subset=["baseline_probability", "probability_yes", "kalshi_mid_probability"])
+    common = frame.dropna(
+        subset=["baseline_probability", "probability_yes", "kalshi_mid_probability"]
+    )
     if not common.empty:
-        for name, column in (("baseline", "baseline_probability"), ("logistic" if kind == "logistic" else "selected", "probability_yes"), ("market", "kalshi_mid_probability")):
+        for name, column in (
+            ("baseline", "baseline_probability"),
+            ("logistic" if kind == "logistic" else "selected", "probability_yes"),
+            ("market", "kalshi_mid_probability"),
+        ):
             candidate = common.copy()
             candidate["probability_yes"] = common[column]
             candidate.attrs["selected_model_name"] = name
             comparison[name] = run_backtest(candidate, replace(config)).metrics
     report = {
-        "evaluation": "walk-forward out-of-sample" if walk_forward else "chronological held-out markets",
+        "evaluation": "walk-forward out-of-sample"
+        if walk_forward
+        else "chronological held-out markets",
         "model_version": frame.attrs.get("model_version", "fold-specific logistic models"),
-        "metrics": result.metrics, "thresholds": sweep.to_dict("records"),
+        "metrics": result.metrics,
+        "thresholds": sweep.to_dict("records"),
         "strategy_comparison_common_support": comparison,
-        "folds": folds, "provenance": frame.attrs.get("manifest"),
+        "folds": folds,
+        "provenance": frame.attrs.get("manifest"),
         "threshold_note": "This sweep is descriptive. Do not choose a threshold from final-test P&L; preselect it on validation data for a later untouched period.",
         "limits": "Historical displayed asks are execution estimates, not guaranteed fills. Drawdown uses settled equity. No claim of future profitability.",
     }
@@ -143,5 +189,13 @@ def backtest(settings: Settings, kind: str = "logistic", *, walk_forward: bool =
     result.equity.to_csv(settings.report_dir / "equity.csv", index=False)
     sweep.to_csv(settings.report_dir / "thresholds.csv", index=False)
     frame.to_csv(settings.report_dir / "oos_predictions.csv", index=False)
-    logger.info("backtest_result", extra={"context": {"evaluation": report["evaluation"], "report": str(settings.report_dir / "backtest.json")}})
+    logger.info(
+        "backtest_result",
+        extra={
+            "context": {
+                "evaluation": report["evaluation"],
+                "report": str(settings.report_dir / "backtest.json"),
+            }
+        },
+    )
     return report

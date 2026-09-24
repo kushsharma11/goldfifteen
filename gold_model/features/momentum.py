@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Sequence
 
 from gold_model.data.models import PricePoint
 
@@ -51,14 +51,13 @@ def horizon_return(
         return None
     first, last = interval[0], interval[-1]
     endpoint_tolerance = seconds / 4
-    if (
-        (cutoff - first.timestamp).total_seconds() > endpoint_tolerance
-        or (at - last.timestamp).total_seconds() > endpoint_tolerance
-    ):
+    if (cutoff - first.timestamp).total_seconds() > endpoint_tolerance or (
+        at - last.timestamp
+    ).total_seconds() > endpoint_tolerance:
         return None
     gaps = [
         (right.timestamp - left.timestamp).total_seconds()
-        for left, right in zip(interval, interval[1:])
+        for left, right in zip(interval, interval[1:], strict=False)
     ]
     if max(gaps) > seconds:
         return None

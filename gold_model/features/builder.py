@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import erf, isfinite, sqrt
-from typing import Sequence
 
 from gold_model.data.models import BookSnapshot, MarketWindow, PricePoint
 from gold_model.features.momentum import available_prices, horizon_return
@@ -57,7 +57,7 @@ class FeatureUnavailable(ValueError):
 def _utc(at: datetime) -> datetime:
     if at.tzinfo is None or at.utcoffset() is None:
         raise ValueError("Feature timestamps must be timezone-aware")
-    return at.astimezone(timezone.utc)
+    return at.astimezone(UTC)
 
 
 def _depth_size(levels: list) -> float:
@@ -127,7 +127,8 @@ class FeatureBuilder:
         # A configured feed change must warm up its own history. Different
         # references/providers can have a level basis that creates fake returns.
         known_spot = [
-            point for point in known_spot
+            point
+            for point in known_spot
             if (point.provider, point.feed_id) == (latest.provider, latest.feed_id)
         ]
         features: dict[str, float | None] = dict.fromkeys(FEATURE_COLUMNS)
@@ -146,8 +147,11 @@ class FeatureBuilder:
         for name, seconds in VOLATILITY_HORIZONS.items():
             features[f"volatility_{name}"] = realized_volatility(known_spot, at, seconds)
         sigma = next(
-            (features[f"volatility_{name}"] for name in VOLATILITY_HORIZONS
-             if features[f"volatility_{name}"] is not None),
+            (
+                features[f"volatility_{name}"]
+                for name in VOLATILITY_HORIZONS
+                if features[f"volatility_{name}"] is not None
+            ),
             None,
         )
         if sigma is None:
@@ -165,7 +169,8 @@ class FeatureBuilder:
             age = (at - latest_comex.timestamp).total_seconds()
             if not latest_comex.delayed and age <= self.comex_max_age_seconds:
                 real_time = [
-                    point for point in known_comex
+                    point
+                    for point in known_comex
                     if not point.delayed and point.provider == latest_comex.provider
                 ]
                 features["current_comex_price"] = float(latest_comex.price)
@@ -185,7 +190,8 @@ class FeatureBuilder:
         at: datetime,
     ) -> None:
         eligible = [
-            book for book in books
+            book
+            for book in books
             if book.market_id == market_id and book.timestamp <= at and book.available_at <= at
         ]
         if not eligible:
@@ -208,6 +214,6 @@ class FeatureBuilder:
         if book.yes_bids and book.no_bids:
             yes_depth, no_depth = _depth_size(book.yes_bids), _depth_size(book.no_bids)
             if yes_depth + no_depth > 0:
-                features["kalshi_order_book_imbalance"] = (
-                    (yes_depth - no_depth) / (yes_depth + no_depth)
+                features["kalshi_order_book_imbalance"] = (yes_depth - no_depth) / (
+                    yes_depth + no_depth
                 )

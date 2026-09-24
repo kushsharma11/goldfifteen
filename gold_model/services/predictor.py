@@ -27,15 +27,19 @@ def feature_builder(settings: Settings) -> FeatureBuilder:
 
 def cost_config(settings: Settings) -> CostConfig:
     return CostConfig(
-        include_fees=settings.include_fees, fee_per_contract=settings.fee_per_contract,
-        quadratic_fee_rate=settings.quadratic_fee_rate, slippage_cents=settings.slippage_cents,
+        include_fees=settings.include_fees,
+        fee_per_contract=settings.fee_per_contract,
+        quadratic_fee_rate=settings.quadratic_fee_rate,
+        slippage_cents=settings.slippage_cents,
     )
 
 
 def sizing_config(settings: Settings) -> SizingConfig:
     return SizingConfig(
-        method=settings.sizing_method, fixed_contracts=settings.fixed_contracts,
-        fixed_dollar_risk=settings.fixed_dollar_risk, kelly_fraction=settings.kelly_fraction,
+        method=settings.sizing_method,
+        fixed_contracts=settings.fixed_contracts,
+        fixed_dollar_risk=settings.fixed_dollar_risk,
+        kelly_fraction=settings.kelly_fraction,
         max_position_dollars=settings.max_position_dollars,
         max_fraction_of_bankroll_per_market=settings.max_fraction_of_bankroll_per_market,
     )
@@ -56,41 +60,80 @@ class Predictor:
         self.model = model if model is not None else BaselineModel()
         self.builder = feature_builder(settings)
 
-    def predict(self, *, at: datetime | None = None, market_id: str | None = None,
-                bankroll: float | None = None) -> LivePrediction:
+    def predict(
+        self,
+        *,
+        at: datetime | None = None,
+        market_id: str | None = None,
+        bankroll: float | None = None,
+    ) -> LivePrediction:
         at = as_utc(at) if at is not None else utc_now()
         versions = [m for m in self.database.markets(market_id) if m.available_at <= at]
         latest = {m.market_id: m for m in versions}
-        active = [m for m in latest.values() if m.start_time <= at < m.end_time and m.status in {"open", "active"}]
+        active = [
+            m
+            for m in latest.values()
+            if m.start_time <= at < m.end_time and m.status in {"open", "active"}
+        ]
         if not active:
-            raise FeatureUnavailable("NO SIGNAL — no currently open Kalshi gold window is available")
+            raise FeatureUnavailable(
+                "NO SIGNAL — no currently open Kalshi gold window is available"
+            )
         market = min(active, key=lambda m: m.end_time)
         start = at - timedelta(hours=1)
         features = self.builder.build(
-            at, market, self.database.prices("spot", start=start, end=at),
+            at,
+            market,
+            self.database.prices("spot", start=start, end=at),
             self.database.prices("comex", start=start, end=at),
             self.database.books(market.market_id, start=start, end=at),
         )
         probability = self.model.predict(features)
         costs = cost_config(self.settings)
         signal = calculate_signal(
-            probability.probability_yes, features["kalshi_yes_ask"], features["kalshi_no_ask"],
-            self.settings.min_edge, costs,
+            probability.probability_yes,
+            features["kalshi_yes_ask"],
+            features["kalshi_no_ask"],
+            self.settings.min_edge,
+            costs,
             actionable=self.settings.market_reference_verified,
-            reason=None if self.settings.market_reference_verified else "PASS — settlement reference/feed parity has not been verified",
+            reason=None
+            if self.settings.market_reference_verified
+            else "PASS — settlement reference/feed parity has not been verified",
         )
-        depth = features.get(f"kalshi_{signal.action.lower()}_ask_size") if signal.action != "PASS" else None
+        depth = (
+            features.get(f"kalshi_{signal.action.lower()}_ask_size")
+            if signal.action != "PASS"
+            else None
+        )
         # Unknown depth cannot support a quantity recommendation.
-        position = size_position(signal, self.settings.bankroll if bankroll is None else bankroll,
-                                 costs, sizing_config(self.settings), available_depth=depth or 0)
+        position = size_position(
+            signal,
+            self.settings.bankroll if bankroll is None else bankroll,
+            costs,
+            sizing_config(self.settings),
+            available_depth=depth or 0,
+        )
         if signal.action != "PASS" and position.contracts == 0:
-            signal = replace(signal, action="PASS", reason="PASS — insufficient depth or risk budget for one contract")
+            signal = replace(
+                signal,
+                action="PASS",
+                reason="PASS — insufficient depth or risk budget for one contract",
+            )
         record = PredictionRecord(
-            timestamp=at, market_id=market.market_id, model_version=self.model.version,
-            probability_yes=probability.probability_yes, probability_no=probability.probability_no,
-            kalshi_yes_ask=signal.yes_ask, kalshi_no_ask=signal.no_ask,
-            yes_edge=signal.yes_edge, no_edge=signal.no_edge, action=signal.action,
-            recommended_position=position.contracts, risk_dollars=position.risk_dollars, reason=signal.reason,
+            timestamp=at,
+            market_id=market.market_id,
+            model_version=self.model.version,
+            probability_yes=probability.probability_yes,
+            probability_no=probability.probability_no,
+            kalshi_yes_ask=signal.yes_ask,
+            kalshi_no_ask=signal.no_ask,
+            yes_edge=signal.yes_edge,
+            no_edge=signal.no_edge,
+            action=signal.action,
+            recommended_position=position.contracts,
+            risk_dollars=position.risk_dollars,
+            reason=signal.reason,
         )
         self.database.add_features(at, market.market_id, features)
         self.database.add_prediction(record)

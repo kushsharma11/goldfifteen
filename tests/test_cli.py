@@ -33,23 +33,47 @@ def research_workspace(tmp_path, monkeypatch):
     # database or appear in reported market-performance examples.
     for seconds in range(-360, 18 * 900 + 1, 10):
         at = start + timedelta(seconds=seconds)
-        price = 4300 + math.sin(seconds / 100) * 3 + math.cos(seconds / 37) * .2
-        db.add_price(PricePoint(timestamp=at, available_at=at, price=price, provider="test_fixture"))
+        price = 4300 + math.sin(seconds / 100) * 3 + math.cos(seconds / 37) * 0.2
+        db.add_price(
+            PricePoint(timestamp=at, available_at=at, price=price, provider="test_fixture")
+        )
     for i in range(18):
         opened = start + timedelta(minutes=15 * i)
         closed = opened + timedelta(minutes=15)
-        market = MarketWindow(market_id=f"TEST-{i}", start_time=opened, end_time=closed,
-                              available_at=opened, target_price=4300, status="open")
+        market = MarketWindow(
+            market_id=f"TEST-{i}",
+            start_time=opened,
+            end_time=closed,
+            available_at=opened,
+            target_price=4300,
+            status="open",
+        )
         db.add_market(market)
-        db.add_market(market.model_copy(update={
-            "available_at": closed + timedelta(seconds=1), "settlement_time": closed,
-            "result_yes": bool(i % 2), "status": "settled",
-        }))
+        db.add_market(
+            market.model_copy(
+                update={
+                    "available_at": closed + timedelta(seconds=1),
+                    "settlement_time": closed,
+                    "result_yes": bool(i % 2),
+                    "status": "settled",
+                }
+            )
+        )
         for offset in (300, 600):
             at = opened + timedelta(seconds=offset)
-            db.add_book(BookSnapshot(timestamp=at, available_at=at, market_id=market.market_id,
-                                     yes_bid=.44, yes_ask=.46, no_bid=.54, no_ask=.56,
-                                     yes_ask_size=50, no_ask_size=50))
+            db.add_book(
+                BookSnapshot(
+                    timestamp=at,
+                    available_at=at,
+                    market_id=market.market_id,
+                    yes_bid=0.44,
+                    yes_ask=0.46,
+                    no_bid=0.54,
+                    no_ask=0.56,
+                    yes_ask_size=50,
+                    no_ask_size=50,
+                )
+            )
     db.close()
     return tmp_path
 
@@ -77,8 +101,18 @@ def test_full_offline_research_workflow(research_workspace):
     assert report["metrics"]["mode"] == "executable"
     assert len(report["thresholds"]) == 7
     assert len(pd.read_csv(root / "reports/oos_predictions.csv")) > 0
-    invoke_ok(["backtest", "--walk-forward", "--min-train-markets", "6",
-               "--calibration-markets", "4", "--test-markets", "4"])
+    invoke_ok(
+        [
+            "backtest",
+            "--walk-forward",
+            "--min-train-markets",
+            "6",
+            "--calibration-markets",
+            "4",
+            "--test-markets",
+            "4",
+        ]
+    )
     report = json.loads((root / "reports/backtest.json").read_text())
     assert report["evaluation"] == "walk-forward out-of-sample"
     assert len(report["folds"]) == 2
@@ -107,6 +141,8 @@ def test_dataset_tampering_is_detected(research_workspace):
 
 def test_naive_backfill_date_rejected(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    result = runner.invoke(app, ["backfill", "kalshi", "--start", "2026-01-01", "--end", "2026-01-02"])
+    result = runner.invoke(
+        app, ["backfill", "kalshi", "--start", "2026-01-01", "--end", "2026-01-02"]
+    )
     assert result.exit_code == 1
     assert "Naive datetime" in result.output

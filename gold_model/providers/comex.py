@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from gold_model.data.models import PricePoint
-from gold_model.providers.base import HTTPProvider, ProviderError, historical_availability, secret, utc
+from gold_model.providers.base import (
+    HTTPProvider,
+    ProviderError,
+    historical_availability,
+    secret,
+    utc,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +26,9 @@ logger = logging.getLogger(__name__)
 def _contract(settings: Any) -> str:
     contract = settings.comex_contract
     if not contract or not re.fullmatch(r"GC[FGHJKMNQUVXZ]\d{1,2}", contract):
-        raise ProviderError("COMEX_CONTRACT must name one GC futures expiry, e.g. GCZ6; continuous/root symbols are prohibited")
+        raise ProviderError(
+            "COMEX_CONTRACT must name one GC futures expiry, e.g. GCZ6; continuous/root symbols are prohibited"
+        )
     return contract
 
 
@@ -52,22 +60,43 @@ class DatabentoComexProvider(HTTPProvider):
     def _key(self) -> str:
         key = secret(self.settings.comex_api_key)
         if not key:
-            raise ProviderError("Databento requires COMEX_API_KEY and COMEX/CME market-data entitlements")
+            raise ProviderError(
+                "Databento requires COMEX_API_KEY and COMEX/CME market-data entitlements"
+            )
         return key
 
     def _history_point(self, row: dict[str, Any], received_at: datetime) -> PricePoint:
         contract = _contract(self.settings)
         if row.get("symbol") != contract:
-            raise ProviderError("Databento returned an unexpected contract; refusing mixed-contract history")
+            raise ProviderError(
+                "Databento returned an unexpected contract; refusing mixed-contract history"
+            )
         try:
             timestamp = utc(row["hd"]["ts_event"])
             source_receive = utc(row["ts_recv"])
             price = float(row["price"])
         except (KeyError, TypeError, ValueError):
             raise ProviderError("Databento returned invalid trade data") from None
-        available_at, metadata = historical_availability(max(timestamp, source_receive), received_at, self.settings.historical_latency_seconds)
-        metadata.update({"source_receive_time": source_receive.isoformat(), "dataset": self.settings.comex_dataset, "schema": "trades"})
-        return PricePoint(timestamp=timestamp, available_at=available_at, price=price, contract=contract, provider=self.provider_name, delayed=True, metadata=metadata, raw=row)
+        available_at, metadata = historical_availability(
+            max(timestamp, source_receive), received_at, self.settings.historical_latency_seconds
+        )
+        metadata.update(
+            {
+                "source_receive_time": source_receive.isoformat(),
+                "dataset": self.settings.comex_dataset,
+                "schema": "trades",
+            }
+        )
+        return PricePoint(
+            timestamp=timestamp,
+            available_at=available_at,
+            price=price,
+            contract=contract,
+            provider=self.provider_name,
+            delayed=True,
+            metadata=metadata,
+            raw=row,
+        )
 
     async def historical_prices(self, start: datetime, end: datetime) -> list[PricePoint]:
         start, end = utc(start), utc(end)
@@ -80,15 +109,37 @@ class DatabentoComexProvider(HTTPProvider):
         while chunk_start < end:
             chunk_end = min(chunk_start + timedelta(hours=1), end)
             response, received_at = await self._request(
-                "POST", f"{self.settings.databento_base_url.rstrip('/')}/timeseries.get_range",
+                "POST",
+                f"{self.settings.databento_base_url.rstrip('/')}/timeseries.get_range",
                 auth=(self._key(), ""),
-                data={"dataset": self.settings.comex_dataset, "schema": "trades", "symbols": _contract(self.settings), "stype_in": "raw_symbol", "start": chunk_start.isoformat(), "end": chunk_end.isoformat(), "encoding": "json", "pretty_px": "true", "pretty_ts": "true", "map_symbols": "true"},
+                data={
+                    "dataset": self.settings.comex_dataset,
+                    "schema": "trades",
+                    "symbols": _contract(self.settings),
+                    "stype_in": "raw_symbol",
+                    "start": chunk_start.isoformat(),
+                    "end": chunk_end.isoformat(),
+                    "encoding": "json",
+                    "pretty_px": "true",
+                    "pretty_ts": "true",
+                    "map_symbols": "true",
+                },
             )
-            self.record_raw("historical_trades", {"text": response.text, "start": chunk_start.isoformat(), "end": chunk_end.isoformat()}, received_at)
+            self.record_raw(
+                "historical_trades",
+                {
+                    "text": response.text,
+                    "start": chunk_start.isoformat(),
+                    "end": chunk_end.isoformat(),
+                },
+                received_at,
+            )
             try:
                 rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
             except ValueError:
-                raise ProviderError("Databento returned malformed JSON-lines trade history") from None
+                raise ProviderError(
+                    "Databento returned malformed JSON-lines trade history"
+                ) from None
             for row in rows:
                 point = self._history_point(row, received_at)
                 if start <= point.timestamp < end:
@@ -103,12 +154,22 @@ class DatabentoComexProvider(HTTPProvider):
                 self.record_raw("live_trade", raw, received_at)
                 timestamp = _nanoseconds(raw["ts_event"])
                 if timestamp > received_at + timedelta(seconds=5):
-                    raise ProviderError("Databento trade timestamp is in the future; check local clock")
+                    raise ProviderError(
+                        "Databento trade timestamp is in the future; check local clock"
+                    )
                 point = PricePoint(
-                    timestamp=timestamp, available_at=max(timestamp, received_at),
-                    price=raw["price"] * 1e-9, contract=_contract(self.settings),
-                    provider=self.provider_name, delayed=False,
-                    metadata={"availability_basis": "local_receive_time", "dataset": self.settings.comex_dataset, "schema": "trades", "source_receive_time": _nanoseconds(raw["ts_recv"]).isoformat()},
+                    timestamp=timestamp,
+                    available_at=max(timestamp, received_at),
+                    price=raw["price"] * 1e-9,
+                    contract=_contract(self.settings),
+                    provider=self.provider_name,
+                    delayed=False,
+                    metadata={
+                        "availability_basis": "local_receive_time",
+                        "dataset": self.settings.comex_dataset,
+                        "schema": "trades",
+                        "source_receive_time": _nanoseconds(raw["ts_recv"]).isoformat(),
+                    },
                     raw=raw,
                 )
                 if self._latest is None or point.timestamp >= self._latest.timestamp:
@@ -117,7 +178,9 @@ class DatabentoComexProvider(HTTPProvider):
         except asyncio.CancelledError:
             raise
         except Exception:
-            self._set_live_error("Databento live normalization or raw persistence failed; inspect data/storage")
+            self._set_live_error(
+                "Databento live normalization or raw persistence failed; inspect data/storage"
+            )
 
     def _set_live_error(self, reason: str) -> None:
         self._live_error = ProviderError(reason)
@@ -127,7 +190,9 @@ class DatabentoComexProvider(HTTPProvider):
         try:
             self._queue.put_nowait((raw, received_at))
         except asyncio.QueueFull:
-            self._set_live_error("Databento live capture queue overflowed; data was lost, so predictions are disabled")
+            self._set_live_error(
+                "Databento live capture queue overflowed; data was lost, so predictions are disabled"
+            )
 
     async def _ensure_live(self) -> None:
         async with self._start_lock:
@@ -137,13 +202,25 @@ class DatabentoComexProvider(HTTPProvider):
             try:
                 import databento as db
             except ImportError:
-                raise ProviderError("Databento live support requires pip install -e '.[comex]' (or select COMEX_PROVIDER=csv)") from None
+                raise ProviderError(
+                    "Databento live support requires pip install -e '.[comex]' (or select COMEX_PROVIDER=csv)"
+                ) from None
             loop = asyncio.get_running_loop()
 
             def on_record(record: Any) -> None:
                 received_at = datetime.now(UTC)
                 if isinstance(record, db.TradeMsg):
-                    raw = {name: int(getattr(record, name)) for name in ("ts_event", "ts_recv", "price", "size", "instrument_id", "sequence")}
+                    raw = {
+                        name: int(getattr(record, name))
+                        for name in (
+                            "ts_event",
+                            "ts_recv",
+                            "price",
+                            "size",
+                            "instrument_id",
+                            "sequence",
+                        )
+                    }
                     for name in ("publisher_id", "flags", "depth", "ts_in_delta"):
                         if hasattr(record, name):
                             raw[name] = int(getattr(record, name))
@@ -153,15 +230,25 @@ class DatabentoComexProvider(HTTPProvider):
                     raw["symbol"] = contract
                     loop.call_soon_threadsafe(self._enqueue, raw, received_at)
                 elif isinstance(record, db.ErrorMsg):
-                    loop.call_soon_threadsafe(self._set_live_error, "Databento live gateway reported an error; verify subscription, contract and entitlements")
+                    loop.call_soon_threadsafe(
+                        self._set_live_error,
+                        "Databento live gateway reported an error; verify subscription, contract and entitlements",
+                    )
 
             def on_error(_error: Exception) -> None:
-                loop.call_soon_threadsafe(self._set_live_error, "Databento live callback failed; collection stopped")
+                loop.call_soon_threadsafe(
+                    self._set_live_error, "Databento live callback failed; collection stopped"
+                )
 
             def start_client() -> Any:
                 client = db.Live(key=key, reconnect_policy="reconnect")
                 try:
-                    client.subscribe(dataset=self.settings.comex_dataset, schema="trades", stype_in="raw_symbol", symbols=[contract])
+                    client.subscribe(
+                        dataset=self.settings.comex_dataset,
+                        schema="trades",
+                        stype_in="raw_symbol",
+                        symbols=[contract],
+                    )
                     client.add_callback(on_record, exception_callback=on_error)
                     client.start()
                 except Exception:
@@ -179,7 +266,9 @@ class DatabentoComexProvider(HTTPProvider):
                 self._consumer.cancel()
                 await asyncio.gather(self._consumer, return_exceptions=True)
                 self._consumer = None
-                raise ProviderError("Databento live subscription failed; check COMEX_API_KEY, contract and exchange entitlements") from None
+                raise ProviderError(
+                    "Databento live subscription failed; check COMEX_API_KEY, contract and exchange entitlements"
+                ) from None
 
     async def latest_price(self) -> PricePoint:
         if self.settings.comex_provider == "databento_delayed":
@@ -194,9 +283,13 @@ class DatabentoComexProvider(HTTPProvider):
         await self._ensure_live()
         if self._latest is None and self._live_error is None:
             try:
-                await asyncio.wait_for(self._ready.wait(), timeout=self.settings.request_timeout_seconds)
+                await asyncio.wait_for(
+                    self._ready.wait(), timeout=self.settings.request_timeout_seconds
+                )
             except TimeoutError:
-                raise ProviderError("No Databento live trade arrived before timeout; market may be closed") from None
+                raise ProviderError(
+                    "No Databento live trade arrived before timeout; market may be closed"
+                ) from None
         if self._live_error:
             raise self._live_error
         if self._latest is None:
@@ -209,7 +302,9 @@ class DatabentoComexProvider(HTTPProvider):
                 await asyncio.to_thread(self._live.stop)
                 await asyncio.to_thread(self._live.block_for_close, timeout=5)
             except Exception:
-                logger.warning("comex_shutdown_failed", extra={"context": {"provider": self.provider_name}})
+                logger.warning(
+                    "comex_shutdown_failed", extra={"context": {"provider": self.provider_name}}
+                )
             self._live = None
         if self._consumer is not None:
             self._consumer.cancel()
@@ -249,14 +344,34 @@ class CSVComexProvider(HTTPProvider):
                 timestamp, available_at = utc(row["timestamp"]), utc(row["available_at"])
                 if available_at < timestamp:
                     raise ValueError("available_at before timestamp")
-                points.append(PricePoint(timestamp=timestamp, available_at=available_at, price=float(row["price"]), contract=contract, provider=self.provider_name, delayed=delayed in ("true", "1"), metadata={"availability_basis": "imported_recorded_receipt", "imported_at": received_at.isoformat()}, raw=row))
+                points.append(
+                    PricePoint(
+                        timestamp=timestamp,
+                        available_at=available_at,
+                        price=float(row["price"]),
+                        contract=contract,
+                        provider=self.provider_name,
+                        delayed=delayed in ("true", "1"),
+                        metadata={
+                            "availability_basis": "imported_recorded_receipt",
+                            "imported_at": received_at.isoformat(),
+                        },
+                        raw=row,
+                    )
+                )
             except (TypeError, ValueError, ProviderError):
-                raise ProviderError(f"Invalid COMEX CSV row {line_number}; require one contract, aware timestamps, positive price and explicit delayed flag") from None
+                raise ProviderError(
+                    f"Invalid COMEX CSV row {line_number}; require one contract, aware timestamps, positive price and explicit delayed flag"
+                ) from None
         return sorted(points, key=lambda point: point.timestamp)
 
     async def latest_price(self) -> PricePoint:
         now = datetime.now(UTC)
-        points = [point for point in await self._read() if point.timestamp <= now and point.available_at <= now]
+        points = [
+            point
+            for point in await self._read()
+            if point.timestamp <= now and point.available_at <= now
+        ]
         if not points:
             raise ProviderError("COMEX CSV contains no observation available now")
         return points[-1]
@@ -268,12 +383,16 @@ class CSVComexProvider(HTTPProvider):
         return [point for point in await self._read() if start <= point.timestamp < end]
 
 
-def create_comex_provider(settings: Any, **kwargs: Any) -> DatabentoComexProvider | CSVComexProvider:
+def create_comex_provider(
+    settings: Any, **kwargs: Any
+) -> DatabentoComexProvider | CSVComexProvider:
     if settings.comex_provider in ("databento", "databento_delayed"):
         return DatabentoComexProvider(settings, **kwargs)
     if settings.comex_provider == "csv":
         return CSVComexProvider(settings, **kwargs)
-    raise ProviderError("COMEX is disabled; configure COMEX_PROVIDER=databento, databento_delayed or csv")
+    raise ProviderError(
+        "COMEX is disabled; configure COMEX_PROVIDER=databento, databento_delayed or csv"
+    )
 
 
 # Conventional mixed-case spelling for callers; both names denote one class.

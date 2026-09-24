@@ -18,7 +18,9 @@ class ProbabilityCalibrator:
         if self.method not in {"sigmoid", "isotonic", "none"}:
             raise ValueError("Calibration must be sigmoid, isotonic, or none")
 
-    def fit(self, probabilities: np.ndarray, labels: np.ndarray, sample_weight: np.ndarray | None = None) -> "ProbabilityCalibrator":
+    def fit(
+        self, probabilities: np.ndarray, labels: np.ndarray, sample_weight: np.ndarray | None = None
+    ) -> "ProbabilityCalibrator":
         p = np.asarray(probabilities, dtype=float)
         y = np.asarray(labels, dtype=int)
         if len(p) != len(y) or not len(y) or not np.isfinite(p).all():
@@ -27,7 +29,9 @@ class ProbabilityCalibrator:
             raise ValueError("Calibration period must contain both resolved outcomes")
         if self.method == "sigmoid":
             self.estimator = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000)
-            self.estimator.fit(logit(np.clip(p, 1e-6, 1 - 1e-6)).reshape(-1, 1), y, sample_weight=sample_weight)
+            self.estimator.fit(
+                logit(np.clip(p, 1e-6, 1 - 1e-6)).reshape(-1, 1), y, sample_weight=sample_weight
+            )
         elif self.method == "isotonic":
             self.estimator = IsotonicRegression(out_of_bounds="clip", y_min=1e-6, y_max=1 - 1e-6)
             self.estimator.fit(p, y, sample_weight=sample_weight)

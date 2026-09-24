@@ -38,12 +38,23 @@ def write_json(path: Path, value: Any) -> None:
 def write_dataset(frame: pd.DataFrame, path: Path, provenance: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(path, index=False)
-    write_json(path.with_suffix(".manifest.json"), {
-        "created_at": utc_now(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "rows": len(frame), "markets": int(frame.market_id.nunique()) if len(frame) else 0,
-        "provenance": provenance, "builder": frame.attrs,
-        "units": {"prices": "USD", "probabilities": "0..1", "returns": "fractional", "volatility": "USD/sqrt(second)"},
-    })
+    write_json(
+        path.with_suffix(".manifest.json"),
+        {
+            "created_at": utc_now(),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "rows": len(frame),
+            "markets": int(frame.market_id.nunique()) if len(frame) else 0,
+            "provenance": provenance,
+            "builder": frame.attrs,
+            "units": {
+                "prices": "USD",
+                "probabilities": "0..1",
+                "returns": "fractional",
+                "volatility": "USD/sqrt(second)",
+            },
+        },
+    )
 
 
 def read_dataset(path: Path) -> pd.DataFrame:
@@ -51,14 +62,18 @@ def read_dataset(path: Path) -> pd.DataFrame:
         raise ValueError(f"Dataset not found: {path}. Collect data and run build-dataset first.")
     frame = pd.read_csv(path, dtype={"market_id": str})
     if frame.empty:
-        raise ValueError("Dataset contains no eligible snapshots; inspect its manifest for skip reasons")
+        raise ValueError(
+            "Dataset contains no eligible snapshots; inspect its manifest for skip reasons"
+        )
     missing = {"market_id", "label", *DATE_COLUMNS} - set(frame.columns)
     if missing:
         raise ValueError(f"Dataset missing required columns: {sorted(missing)}")
     for name in DATE_COLUMNS:
         if name not in frame:
             raise ValueError(f"Dataset missing required timestamp column: {name}")
-        frame[name] = pd.to_datetime([parse_datetime(str(value)) for value in frame[name]], utc=True)
+        frame[name] = pd.to_datetime(
+            [parse_datetime(str(value)) for value in frame[name]], utc=True
+        )
     if not frame.label.isin([0, 1]).all():
         raise ValueError("Dataset labels must be official binary results (0 or 1)")
     if frame.duplicated(["market_id", "timestamp"]).any():
@@ -71,6 +86,8 @@ def read_dataset(path: Path) -> pd.DataFrame:
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text())
         if manifest["sha256"] != hashlib.sha256(path.read_bytes()).hexdigest():
-            raise ValueError("Dataset hash differs from its provenance manifest; rebuild the dataset")
+            raise ValueError(
+                "Dataset hash differs from its provenance manifest; rebuild the dataset"
+            )
         frame.attrs["manifest"] = manifest
     return frame.sort_values(["timestamp", "market_id"]).reset_index(drop=True)

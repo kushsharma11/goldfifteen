@@ -37,7 +37,9 @@ class PriceProvider(Protocol):
 
 
 def utc(value: datetime | str) -> datetime:
-    result = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+    result = (
+        datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+    )
     if result.tzinfo is None or result.utcoffset() is None:
         raise ProviderError("Provider timestamp must have an explicit UTC offset")
     if isinstance(value, str):
@@ -114,13 +116,19 @@ class HTTPProvider:
                 response = await self.client.request(method, url, **kwargs)
             except httpx.TransportError:
                 if attempt + 1 == attempts:
-                    raise ProviderError(f"{self.provider_name}: transport failed after {attempts} attempts") from None
+                    raise ProviderError(
+                        f"{self.provider_name}: transport failed after {attempts} attempts"
+                    ) from None
             else:
                 if response.is_success:
                     return response, datetime.now(UTC)
                 retryable = response.status_code == 429 or response.status_code >= 500
                 if not retryable or attempt + 1 == attempts:
-                    hint = " Check credentials and data entitlements." if response.status_code in (401, 403) else ""
+                    hint = (
+                        " Check credentials and data entitlements."
+                        if response.status_code in (401, 403)
+                        else ""
+                    )
                     raise ProviderError(
                         f"{self.provider_name}: HTTP {response.status_code}.{hint}",
                         status_code=response.status_code,
@@ -132,13 +140,23 @@ class HTTPProvider:
                     delay = max(delay, float(retry_after))
                 except ValueError:
                     try:
-                        delay = max(delay, (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds())
+                        delay = max(
+                            delay,
+                            (
+                                parsedate_to_datetime(retry_after) - datetime.now(UTC)
+                            ).total_seconds(),
+                        )
                     except (TypeError, ValueError):
                         pass
                 # A long server-directed pause belongs to the caller's next cycle.
                 if delay > 60:
-                    raise ProviderError(f"{self.provider_name}: rate limited; retry after {delay:.0f}s", 429)
-            logger.warning("provider_retry", extra={"context": {"provider": self.provider_name, "attempt": attempt + 1}})
+                    raise ProviderError(
+                        f"{self.provider_name}: rate limited; retry after {delay:.0f}s", 429
+                    )
+            logger.warning(
+                "provider_retry",
+                extra={"context": {"provider": self.provider_name, "attempt": attempt + 1}},
+            )
             await asyncio.sleep(delay)
         raise AssertionError("Unreachable retry state")
 
@@ -149,5 +167,7 @@ class HTTPProvider:
         except ValueError:
             self.record_raw(kind, {"text": response.text}, received_at)
             raise ProviderError(f"{self.provider_name}: malformed JSON response") from None
-        self.record_raw(kind, payload if isinstance(payload, dict) else {"data": payload}, received_at)
+        self.record_raw(
+            kind, payload if isinstance(payload, dict) else {"data": payload}, received_at
+        )
         return payload, received_at

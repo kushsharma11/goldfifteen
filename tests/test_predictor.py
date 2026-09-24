@@ -1,6 +1,6 @@
 """Live decision guards and persisted research predictions; no network or orders."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -14,41 +14,65 @@ from gold_model.features import FeatureUnavailable
 from gold_model.models.logistic import LogisticModel
 from gold_model.services.predictor import Predictor
 
-AT = datetime(2026, 1, 2, 14, 10, tzinfo=timezone.utc)
+AT = datetime(2026, 1, 2, 14, 10, tzinfo=UTC)
 
 
 @pytest.fixture
 def database():
     database = Database("sqlite:///:memory:")
     database.init()
-    database.add_market(MarketWindow(
-        market_id="gold-live", start_time=AT - timedelta(minutes=10),
-        end_time=AT + timedelta(minutes=5), available_at=AT - timedelta(minutes=10),
-        target_price=4300,
-    ))
+    database.add_market(
+        MarketWindow(
+            market_id="gold-live",
+            start_time=AT - timedelta(minutes=10),
+            end_time=AT + timedelta(minutes=5),
+            available_at=AT - timedelta(minutes=10),
+            target_price=4300,
+        )
+    )
     for offset in range(0, 301, 5):
         timestamp = AT - timedelta(seconds=300 - offset)
-        database.add_price(PricePoint(
-            timestamp=timestamp, available_at=timestamp, price=4300 + 0.05 * (offset // 5 % 3),
-            provider="pyth",
-        ))
+        database.add_price(
+            PricePoint(
+                timestamp=timestamp,
+                available_at=timestamp,
+                price=4300 + 0.05 * (offset // 5 % 3),
+                provider="pyth",
+            )
+        )
     yield database
     database.close()
 
 
 def settings(**updates):
-    return Settings(_env_file=None, **({
-        "market_reference_verified": True, "include_fees": False,
-        "sizing_method": "fixed_contracts", "fixed_contracts": 3,
-    } | updates))
+    return Settings(
+        _env_file=None,
+        **(
+            {
+                "market_reference_verified": True,
+                "include_fees": False,
+                "sizing_method": "fixed_contracts",
+                "fixed_contracts": 3,
+            }
+            | updates
+        ),
+    )
 
 
 def add_book(database, at=AT, depth=10):
-    database.add_book(BookSnapshot(
-        timestamp=at, available_at=at, market_id="gold-live",
-        yes_bid=0.18, yes_ask=0.20, no_bid=0.80, no_ask=0.82,
-        yes_ask_size=depth, no_ask_size=depth,
-    ))
+    database.add_book(
+        BookSnapshot(
+            timestamp=at,
+            available_at=at,
+            market_id="gold-live",
+            yes_bid=0.18,
+            yes_ask=0.20,
+            no_bid=0.80,
+            no_ask=0.82,
+            yes_ask_size=depth,
+            no_ask_size=depth,
+        )
+    )
 
 
 def persisted(database, model):
@@ -131,11 +155,17 @@ def test_live_model_requiring_missing_comex_refuses_without_zero_substitution(da
     for index in range(6):
         start = AT - timedelta(hours=2) + timedelta(minutes=15 * index)
         end = start + timedelta(minutes=15)
-        rows.append({
-            "market_id": f"training-{index}", "timestamp": start + timedelta(minutes=5),
-            "market_start": start, "market_end": end, "label_available_at": end,
-            "label": index % 2, "comex_return_1m": 0.001 * (2 * (index % 2) - 1),
-        })
+        rows.append(
+            {
+                "market_id": f"training-{index}",
+                "timestamp": start + timedelta(minutes=5),
+                "market_start": start,
+                "market_end": end,
+                "label_available_at": end,
+                "label": index % 2,
+                "comex_return_1m": 0.001 * (2 * (index % 2) - 1),
+            }
+        )
     frame = pd.DataFrame(rows)
     model = LogisticModel(feature_names=["comex_return_1m"]).fit(frame.iloc[:4], frame.iloc[4:])
     add_book(database)
@@ -147,13 +177,24 @@ def test_live_model_requiring_missing_comex_refuses_without_zero_substitution(da
 def test_future_market_revision_and_late_tick_do_not_enter_live_prediction(database):
     add_book(database)
     original = Predictor(settings(), database).predict(at=AT)
-    database.add_price(PricePoint(
-        timestamp=AT, available_at=AT + timedelta(seconds=1), price=9999, provider="pyth",
-    ))
-    database.add_market(MarketWindow(
-        market_id="gold-live", start_time=AT - timedelta(minutes=10), end_time=AT + timedelta(minutes=5),
-        available_at=AT + timedelta(seconds=1), target_price=9999, status="closed",
-    ))
+    database.add_price(
+        PricePoint(
+            timestamp=AT,
+            available_at=AT + timedelta(seconds=1),
+            price=9999,
+            provider="pyth",
+        )
+    )
+    database.add_market(
+        MarketWindow(
+            market_id="gold-live",
+            start_time=AT - timedelta(minutes=10),
+            end_time=AT + timedelta(minutes=5),
+            available_at=AT + timedelta(seconds=1),
+            target_price=9999,
+            status="closed",
+        )
+    )
     repeat = Predictor(settings(), database).predict(at=AT)
     assert repeat.features == original.features
     assert repeat.record == original.record

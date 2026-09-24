@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import sqrt
 from statistics import median
-from typing import Sequence
 
 from gold_model.data.models import PricePoint
 from gold_model.features.momentum import available_prices
@@ -34,7 +34,7 @@ def realized_volatility(
         return None
     gaps = [
         (right.timestamp - left.timestamp).total_seconds()
-        for left, right in zip(sample, sample[1:])
+        for left, right in zip(sample, sample[1:], strict=False)
     ]
     elapsed = (sample[-1].timestamp - sample[0].timestamp).total_seconds()
     typical_gap = median(gaps)
@@ -45,6 +45,6 @@ def realized_volatility(
     ):
         return None
     quadratic_variation = sum(
-        (right.price - left.price) ** 2 for left, right in zip(sample, sample[1:])
+        (right.price - left.price) ** 2 for left, right in zip(sample, sample[1:], strict=False)
     )
     return float(sqrt(quadratic_variation / elapsed))

@@ -17,29 +17,36 @@ def dataset(n=40, snapshots=2):
         opening = start + pd.Timedelta(minutes=15 * i)
         label = i % 2
         for j in range(snapshots):
-            rows.append({
-                "market_id": f"market-{i:03}", "timestamp": opening + pd.Timedelta(seconds=60 + j * 60),
-                "market_start": opening, "market_end": opening + pd.Timedelta(minutes=15),
-                "label_available_at": opening + pd.Timedelta(minutes=15, seconds=20), "label": label,
-                "baseline_probability": .65 if label else .35,
-                "gold_return_30s": .001 if label else -.001, "gold_return_1m": .002 if label else -.002,
-                "volatility_5m": .1 + i % 3 * .01, "kalshi_mid_probability": .5,
-            })
+            rows.append(
+                {
+                    "market_id": f"market-{i:03}",
+                    "timestamp": opening + pd.Timedelta(seconds=60 + j * 60),
+                    "market_start": opening,
+                    "market_end": opening + pd.Timedelta(minutes=15),
+                    "label_available_at": opening + pd.Timedelta(minutes=15, seconds=20),
+                    "label": label,
+                    "baseline_probability": 0.65 if label else 0.35,
+                    "gold_return_30s": 0.001 if label else -0.001,
+                    "gold_return_1m": 0.002 if label else -0.002,
+                    "volatility_5m": 0.1 + i % 3 * 0.01,
+                    "kalshi_mid_probability": 0.5,
+                }
+            )
     return pd.DataFrame(rows)
 
 
 def test_normal_baseline_symmetry_complement_expiration_and_zero_volatility():
-    p = baseline_probability(4301, 4300, 100, .1)
-    assert p == pytest.approx(.841344746)
-    assert baseline_probability(4299, 4300, 100, .1) == pytest.approx(1 - p)
-    assert baseline_probability(4300, 4300, 100, 0) == .5
-    assert baseline_probability(4300, 4300, 0, .1) == 1
-    assert baseline_probability(4299, 4300, 0, .1) == 0
+    p = baseline_probability(4301, 4300, 100, 0.1)
+    assert p == pytest.approx(0.841344746)
+    assert baseline_probability(4299, 4300, 100, 0.1) == pytest.approx(1 - p)
+    assert baseline_probability(4300, 4300, 100, 0) == 0.5
+    assert baseline_probability(4300, 4300, 0, 0.1) == 1
+    assert baseline_probability(4299, 4300, 0, 0.1) == 0
     prediction = Prediction(p)
     assert prediction.probability_yes + prediction.probability_no == 1
     assert BaselineModel().predict({"target_z_score": 1}).probability_yes == pytest.approx(p)
     with pytest.raises(ValueError, match="finite"):
-        baseline_probability(float("nan"), 4300, 100, .1)
+        baseline_probability(float("nan"), 4300, 100, 0.1)
 
 
 def test_chronological_split_keeps_groups_and_purges_unavailable_labels():
@@ -92,7 +99,9 @@ def test_training_and_calibration_are_not_affected_by_test_labels():
     original = dataset()
     model, split = train_logistic(original)
     changed = original.copy()
-    changed.loc[changed.market_id.isin(split.test.market_id), "label"] = 1 - changed.loc[changed.market_id.isin(split.test.market_id), "label"]
+    changed.loc[changed.market_id.isin(split.test.market_id), "label"] = (
+        1 - changed.loc[changed.market_id.isin(split.test.market_id), "label"]
+    )
     other, _ = train_logistic(changed)
     np.testing.assert_allclose(model.predict_proba(split.test), other.predict_proba(split.test))
 
@@ -106,8 +115,8 @@ def test_training_does_not_score_reserved_test_rows():
 
 
 def test_equal_market_weighting_and_probability_comparison():
-    metrics = probability_metrics([1, 1, 0], [.8, .8, .8], ["a", "a", "b"])
-    assert metrics["brier_score"] == pytest.approx((.04 + .64) / 2)
+    metrics = probability_metrics([1, 1, 0], [0.8, 0.8, 0.8], ["a", "a", "b"])
+    assert metrics["brier_score"] == pytest.approx((0.04 + 0.64) / 2)
     frame = dataset(4)
     frame["probability_yes"] = frame.baseline_probability
     frame.loc[0, "kalshi_mid_probability"] = np.nan
@@ -120,7 +129,9 @@ def test_equal_market_weighting_and_probability_comparison():
 
 
 def test_walk_forward_only_predicts_later_disjoint_markets():
-    result = walk_forward_predict(dataset(30), min_train_markets=10, calibration_markets=4, test_markets=4)
+    result = walk_forward_predict(
+        dataset(30), min_train_markets=10, calibration_markets=4, test_markets=4
+    )
     assert len(result.folds) == 4
     assert result.predictions.market_id.nunique() == 16
     assert not result.predictions.duplicated(["market_id", "timestamp"]).any()

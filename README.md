@@ -2,7 +2,7 @@
 
 Python 3.12+ research system for Kalshi 15-minute gold markets. Estimates the probability of finishing at or above a market's reference, compares it with executable asks, and recommends bounded positions. **There is no order-placement functionality.**
 
-Implementation checkpoint: adapters, storage, causal features, models, simulation, and CLI are implemented. Integration verification is in progress. No historical profitability is asserted; no production data is bundled.
+Version 1 implements adapters, storage, causal features, models, simulation, and the CLI. The 93-test offline suite and Ruff checks pass on Python 3.12. Public Kalshi discovery was smoke-tested; authenticated Pyth, Kalshi books, and entitled COMEX delivery still require your configured accounts. No historical profitability is asserted; no production data is bundled.
 
 ## Install and first run
 
@@ -84,8 +84,11 @@ Threshold sweeps are descriptive. Selecting the best final-test threshold or rep
 uv run ruff format .
 uv run ruff check .
 uv run pytest
+uv run python scripts/smoke_test.py
 ```
 
 Tests use synthetic fixtures solely for deterministic correctness checks; their results are not market-performance evidence. Tests do not require provider credentials. A network smoke check can use `collect kalshi`; full live verification requires configured keys and subscriptions.
+
+GitHub Actions runs linting, formatting, and tests with the committed dependency lock on Python 3.12 and 3.13. See [validation notes](docs/validation.md) for the tested scope and remaining external checks.
 
 The most valuable next research steps are prospective reference-aligned tick/book capture, out-of-sample volatility and calibration comparisons, and controlled COMEX/Pyth timing ablations with realistic latency.

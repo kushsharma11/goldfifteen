@@ -100,7 +100,11 @@ def calculate_signal(
         )
     action = "PASS"
     explanation = reason or "No executable price or insufficient adjusted edge"
-    eligible = [(value, side) for value, side in zip(adjusted, ("YES", "NO")) if value is not None and value > 0 and value >= min_edge]
+    eligible = [
+        (value, side)
+        for value, side in zip(adjusted, ("YES", "NO"), strict=True)
+        if value is not None and value > 0 and value >= min_edge
+    ]
     if actionable and eligible:
         _, action = max(eligible)
         explanation = "Adjusted edge meets threshold"

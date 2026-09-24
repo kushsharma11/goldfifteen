@@ -8,26 +8,43 @@ from gold_model.trading.edge import CostConfig
 from gold_model.trading.sizing import SizingConfig
 
 
-def row(market_id="a", minute=0, probability=.8, label=1, settlement_delay=0):
+def row(market_id="a", minute=0, probability=0.8, label=1, settlement_delay=0):
     opening = pd.Timestamp("2025-01-01", tz="UTC") + pd.Timedelta(minutes=minute)
     return {
-        "market_id": market_id, "timestamp": opening + pd.Timedelta(minutes=1),
-        "market_start": opening, "market_end": opening + pd.Timedelta(minutes=15),
+        "market_id": market_id,
+        "timestamp": opening + pd.Timedelta(minutes=1),
+        "market_start": opening,
+        "market_end": opening + pd.Timedelta(minutes=15),
         "label_available_at": opening + pd.Timedelta(minutes=15 + settlement_delay),
-        "label": label, "probability_yes": probability, "baseline_probability": .6,
-        "kalshi_mid_probability": .5, "kalshi_yes_ask": .6, "kalshi_no_ask": .4,
-        "yes_ask_size": 100, "no_ask_size": 100, "book_age_seconds": 1, "volatility_5m": .1,
+        "label": label,
+        "probability_yes": probability,
+        "baseline_probability": 0.6,
+        "kalshi_mid_probability": 0.5,
+        "kalshi_yes_ask": 0.6,
+        "kalshi_no_ask": 0.4,
+        "yes_ask_size": 100,
+        "no_ask_size": 100,
+        "book_age_seconds": 1,
+        "volatility_5m": 0.1,
     }
 
 
 def config(**kwargs):
-    return BacktestConfig(initial_bankroll=100, costs=CostConfig(include_fees=False),
-                          sizing=SizingConfig(method="fixed_contracts", fixed_contracts=10,
-                                              max_position_dollars=100, max_fraction_of_bankroll_per_market=1), **kwargs)
+    return BacktestConfig(
+        initial_bankroll=100,
+        costs=CostConfig(include_fees=False),
+        sizing=SizingConfig(
+            method="fixed_contracts",
+            fixed_contracts=10,
+            max_position_dollars=100,
+            max_fraction_of_bankroll_per_market=1,
+        ),
+        **kwargs,
+    )
 
 
 def test_yes_and_no_payoffs_at_asks_with_one_trade_per_market():
-    yes, no = row(), row("b", 15, probability=.2, label=0)
+    yes, no = row(), row("b", 15, probability=0.2, label=0)
     later = dict(yes, timestamp=yes["timestamp"] + pd.Timedelta(minutes=2))
     result = run_backtest(pd.DataFrame([no, later, yes]), config())
     assert result.metrics["trades"] == 2
@@ -56,7 +73,7 @@ def test_missing_or_stale_depth_never_silently_uses_midpoint():
     assert result.metrics["trades"] == 0
     idealized = run_backtest(pd.DataFrame([quote]), config(mode="idealized"))
     assert idealized.metrics["trades"] == 1
-    assert idealized.trades.execution_price.iloc[0] == .5
+    assert idealized.trades.execution_price.iloc[0] == 0.5
     assert "IDEALIZED" in idealized.metrics["execution_assumption"]
     stale = dict(row(), book_age_seconds=100)
     assert run_backtest(pd.DataFrame([stale]), config()).metrics["trades"] == 0
@@ -64,7 +81,7 @@ def test_missing_or_stale_depth_never_silently_uses_midpoint():
 
 def test_loss_drawdown_depth_and_order_level_fees():
     quote = dict(row(label=0), yes_ask_size=2)
-    cfg = replace(config(), costs=CostConfig(fee_per_contract=.02, slippage_cents=1))
+    cfg = replace(config(), costs=CostConfig(fee_per_contract=0.02, slippage_cents=1))
     result = run_backtest(pd.DataFrame([quote]), cfg)
     assert result.trades.contracts.iloc[0] == 2
     assert result.trades.risk_dollars.iloc[0] == pytest.approx(1.26)
@@ -75,7 +92,7 @@ def test_loss_drawdown_depth_and_order_level_fees():
 
 
 def test_threshold_sensitivity_reports_fixed_oos_predictions():
-    sweep = threshold_sweep(pd.DataFrame([row()]), thresholds=[.1, .3], config=config())
+    sweep = threshold_sweep(pd.DataFrame([row()]), thresholds=[0.1, 0.3], config=config())
     assert sweep.trades.tolist() == [1, 0]
     assert sweep.cumulative_pnl.tolist() == [4, 0]
 

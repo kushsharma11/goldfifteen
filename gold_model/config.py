@@ -8,7 +8,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True, allow_inf_nan=False)
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", env_ignore_empty=True, allow_inf_nan=False
+    )
 
     database_url: str = "sqlite:///data/gold_model.db"
     pyth_api_key: SecretStr | None = None
@@ -39,7 +41,9 @@ class Settings(BaseSettings):
     fee_per_contract: float = Field(default=0.02, ge=0, lt=1)
     quadratic_fee_rate: float | None = Field(default=None, ge=0)
     slippage_cents: float = Field(default=0, ge=0, lt=100)
-    sizing_method: Literal["fixed_contracts", "fixed_dollar_risk", "fractional_kelly"] = "fractional_kelly"
+    sizing_method: Literal["fixed_contracts", "fixed_dollar_risk", "fractional_kelly"] = (
+        "fractional_kelly"
+    )
     kelly_fraction: float = Field(default=0.25, gt=0, le=1)
     max_position_dollars: float = Field(default=100, gt=0)
     max_fraction_of_bankroll_per_market: float = Field(default=0.02, gt=0, le=1)

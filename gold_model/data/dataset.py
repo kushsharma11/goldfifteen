@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from bisect import bisect_left, bisect_right
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import chain
-from typing import Sequence
 
 import pandas as pd
 
@@ -16,7 +16,12 @@ from gold_model.features.builder import FEATURE_COLUMNS, FeatureBuilder, Feature
 
 logger = logging.getLogger(__name__)
 DATASET_COLUMNS = (
-    "market_id", "timestamp", "market_start", "market_end", "label_available_at", "label",
+    "market_id",
+    "timestamp",
+    "market_start",
+    "market_end",
+    "label_available_at",
+    "label",
     *FEATURE_COLUMNS,
 )
 
@@ -37,7 +42,11 @@ def build_dataset(
     A final market response is never used retrospectively to supply a target.
     Missing core data produces a logged skip, exposed in ``frame.attrs['skipped']``.
     """
-    if not isinstance(snapshot_seconds, int) or isinstance(snapshot_seconds, bool) or snapshot_seconds <= 0:
+    if (
+        not isinstance(snapshot_seconds, int)
+        or isinstance(snapshot_seconds, bool)
+        or snapshot_seconds <= 0
+    ):
         raise ValueError("snapshot_seconds must be a positive integer")
     builder = builder or FeatureBuilder()
     ordered_spot = sorted(spot, key=lambda item: item.timestamp)
@@ -90,19 +99,23 @@ def build_dataset(
                     comex_slice = ordered_comex[
                         bisect_left(comex_times, lookback) : bisect_right(comex_times, at)
                     ]
-                    features = builder.build(at, market, spot_slice, comex_slice, market_books[market_id])
+                    features = builder.build(
+                        at, market, spot_slice, comex_slice, market_books[market_id]
+                    )
                 except FeatureUnavailable as error:
                     skip(market_id, at, str(error))
                 else:
-                    rows.append({
-                        "market_id": market_id,
-                        "timestamp": at,
-                        "market_start": market.start_time,
-                        "market_end": market.end_time,
-                        "label_available_at": label_available,
-                        "label": int(final.result_yes),
-                        **features,
-                    })
+                    rows.append(
+                        {
+                            "market_id": market_id,
+                            "timestamp": at,
+                            "market_start": market.start_time,
+                            "market_end": market.end_time,
+                            "label_available_at": label_available,
+                            "label": int(final.result_yes),
+                            **features,
+                        }
+                    )
             at += timedelta(seconds=snapshot_seconds)
     frame = pd.DataFrame(rows, columns=DATASET_COLUMNS)
     for column in ("timestamp", "market_start", "market_end", "label_available_at"):
@@ -111,8 +124,11 @@ def build_dataset(
         frame = frame.sort_values(["timestamp", "market_id"]).reset_index(drop=True)
     frame.attrs["skipped"] = skipped
     frame.attrs["units"] = {
-        "price": "USD per troy ounce", "return": "fraction", "volatility": "USD per sqrt second",
-        "quote": "probability in [0, 1]", "expected_remaining_move": "USD per troy ounce",
+        "price": "USD per troy ounce",
+        "return": "fraction",
+        "volatility": "USD per sqrt second",
+        "quote": "probability in [0, 1]",
+        "expected_remaining_move": "USD per troy ounce",
     }
     assumptions: dict[tuple, dict] = {}
     for provider, metadata in chain(

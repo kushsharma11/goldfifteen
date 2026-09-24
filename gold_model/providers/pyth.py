@@ -9,7 +9,13 @@ from decimal import Decimal
 from typing import Any
 
 from gold_model.data.models import PricePoint
-from gold_model.providers.base import HTTPProvider, ProviderError, historical_availability, secret, utc
+from gold_model.providers.base import (
+    HTTPProvider,
+    ProviderError,
+    historical_availability,
+    secret,
+    utc,
+)
 
 
 class PythProvider(HTTPProvider):
@@ -41,7 +47,9 @@ class PythProvider(HTTPProvider):
             if row.get("attributes", {}).get("symbol", "").split(".")[-1] == "XAU/USD"
         ]
         if len(matches) != 1:
-            raise ProviderError("Pyth XAU/USD feed discovery was ambiguous or empty; configure PYTH_FEED_ID")
+            raise ProviderError(
+                "Pyth XAU/USD feed discovery was ambiguous or empty; configure PYTH_FEED_ID"
+            )
         self._discovered_feed_id = str(matches[0]).removeprefix("0x").lower()
         if not re.fullmatch(r"[0-9a-f]{64}", self._discovered_feed_id):
             raise ProviderError("Pyth feed discovery returned an invalid feed identifier")
@@ -50,7 +58,11 @@ class PythProvider(HTTPProvider):
     def _normalize(
         self, payload: dict[str, Any], received_at: datetime, feed_id: str, *, historical: bool
     ) -> PricePoint:
-        rows = [row for row in payload.get("parsed", []) if str(row.get("id", "")).removeprefix("0x").lower() == feed_id]
+        rows = [
+            row
+            for row in payload.get("parsed", [])
+            if str(row.get("id", "")).removeprefix("0x").lower() == feed_id
+        ]
         if len(rows) != 1:
             raise ProviderError("Pyth response does not contain exactly one requested feed")
         row = rows[0]
@@ -60,18 +72,37 @@ class PythProvider(HTTPProvider):
             price = float(Decimal(value["price"]) * scale)
             confidence = float(Decimal(value["conf"]) * scale)
             timestamp = datetime.fromtimestamp(int(value["publish_time"]), UTC)
-            if not math.isfinite(price) or price <= 0 or not math.isfinite(confidence) or confidence < 0:
+            if (
+                not math.isfinite(price)
+                or price <= 0
+                or not math.isfinite(confidence)
+                or confidence < 0
+            ):
                 raise ValueError("invalid price")
         except (KeyError, TypeError, ValueError, ArithmeticError, OverflowError):
             raise ProviderError("Pyth returned an invalid price observation") from None
         if timestamp > received_at + timedelta(seconds=5):
             raise ProviderError("Pyth publish time is in the future; check local clock")
         if historical:
-            available_at, metadata = historical_availability(timestamp, received_at, self.settings.historical_latency_seconds)
+            available_at, metadata = historical_availability(
+                timestamp, received_at, self.settings.historical_latency_seconds
+            )
         else:
-            available_at, metadata = max(timestamp, received_at), {"availability_basis": "local_receive_time"}
+            available_at, metadata = (
+                max(timestamp, received_at),
+                {"availability_basis": "local_receive_time"},
+            )
         metadata["source_metadata"] = row.get("metadata", {})
-        return PricePoint(timestamp=timestamp, available_at=available_at, price=price, confidence=confidence, provider=self.provider_name, feed_id=feed_id, metadata=metadata, raw=row)
+        return PricePoint(
+            timestamp=timestamp,
+            available_at=available_at,
+            price=price,
+            confidence=confidence,
+            provider=self.provider_name,
+            feed_id=feed_id,
+            metadata=metadata,
+            raw=row,
+        )
 
     async def latest_price(self) -> PricePoint:
         feed_id = await self._feed_id()
@@ -83,7 +114,9 @@ class PythProvider(HTTPProvider):
         )
         return self._normalize(payload, received_at, feed_id, historical=False)
 
-    async def historical_prices(self, start: datetime, end: datetime, step_seconds: int = 5) -> list[PricePoint]:
+    async def historical_prices(
+        self, start: datetime, end: datetime, step_seconds: int = 5
+    ) -> list[PricePoint]:
         """Sample the documented timestamp API; retain actual returned publish times.
 
         Hermes may return the first update at/after a requested timestamp. The

@@ -125,6 +125,7 @@ class Database:
             Path(parsed.database).expanduser().parent.mkdir(parents=True, exist_ok=True)
         self.engine: Engine = create_engine(url)
         if parsed.drivername.startswith("sqlite"):
+
             @event.listens_for(self.engine, "connect")
             def sqlite_pragmas(connection: Any, _: Any) -> None:
                 cursor = connection.cursor()
@@ -147,52 +148,121 @@ class Database:
         return True
 
     def raw_sink(self, provider: str, kind: str, payload: dict, received_at: datetime) -> None:
-        self._append(RawObservation, {
-            "provider": provider, "kind": kind,
-            "received_at": as_utc(received_at).isoformat(), "response": payload,
-        }, provider=provider, kind=kind, received_at=received_at)
+        self._append(
+            RawObservation,
+            {
+                "provider": provider,
+                "kind": kind,
+                "received_at": as_utc(received_at).isoformat(),
+                "response": payload,
+            },
+            provider=provider,
+            kind=kind,
+            received_at=received_at,
+        )
 
     def add_price(self, point: PricePoint, kind: Literal["spot", "comex"] = "spot") -> bool:
         if kind not in ("spot", "comex"):
             raise ValueError("Price kind must be spot or comex")
         table = SpotObservation if kind == "spot" else ComexObservation
-        return self._append(table, point.model_dump(mode="json"), **{
-            name: getattr(point, name) for name in (
-                "timestamp", "available_at", "price", "confidence", "provider", "contract", "delayed"
-            )
-        })
+        return self._append(
+            table,
+            point.model_dump(mode="json"),
+            **{
+                name: getattr(point, name)
+                for name in (
+                    "timestamp",
+                    "available_at",
+                    "price",
+                    "confidence",
+                    "provider",
+                    "contract",
+                    "delayed",
+                )
+            },
+        )
 
     def add_market(self, market: MarketWindow) -> bool:
-        return self._append(MarketObservation, market.model_dump(mode="json"), **{
-            name: getattr(market, name) for name in (
-                "market_id", "available_at", "start_time", "end_time", "target_price",
-                "settled_price", "result_yes", "status"
-            )
-        })
+        return self._append(
+            MarketObservation,
+            market.model_dump(mode="json"),
+            **{
+                name: getattr(market, name)
+                for name in (
+                    "market_id",
+                    "available_at",
+                    "start_time",
+                    "end_time",
+                    "target_price",
+                    "settled_price",
+                    "result_yes",
+                    "status",
+                )
+            },
+        )
 
     def add_book(self, book: BookSnapshot) -> bool:
-        return self._append(OrderBookObservation, book.model_dump(mode="json"), **{
-            name: getattr(book, name) for name in (
-                "timestamp", "available_at", "market_id", "yes_bid", "yes_ask", "no_bid", "no_ask",
-                "yes_ask_size", "no_ask_size"
-            )
-        })
+        return self._append(
+            OrderBookObservation,
+            book.model_dump(mode="json"),
+            **{
+                name: getattr(book, name)
+                for name in (
+                    "timestamp",
+                    "available_at",
+                    "market_id",
+                    "yes_bid",
+                    "yes_ask",
+                    "no_bid",
+                    "no_ask",
+                    "yes_ask_size",
+                    "no_ask_size",
+                )
+            },
+        )
 
     def add_features(self, timestamp: datetime, market_id: str, features: dict) -> bool:
-        return self._append(FeatureObservation, {
-            "timestamp": as_utc(timestamp).isoformat(), "market_id": market_id, "features": features,
-        }, timestamp=timestamp, market_id=market_id, seconds_remaining=features["seconds_remaining"])
+        return self._append(
+            FeatureObservation,
+            {
+                "timestamp": as_utc(timestamp).isoformat(),
+                "market_id": market_id,
+                "features": features,
+            },
+            timestamp=timestamp,
+            market_id=market_id,
+            seconds_remaining=features["seconds_remaining"],
+        )
 
     def add_prediction(self, prediction: PredictionRecord) -> bool:
-        return self._append(ModelPrediction, prediction.model_dump(mode="json"), **{
-            name: getattr(prediction, name) for name in (
-                "timestamp", "market_id", "model_version", "probability_yes", "probability_no",
-                "kalshi_yes_ask", "kalshi_no_ask", "yes_edge", "no_edge", "action", "recommended_position"
-            )
-        })
+        return self._append(
+            ModelPrediction,
+            prediction.model_dump(mode="json"),
+            **{
+                name: getattr(prediction, name)
+                for name in (
+                    "timestamp",
+                    "market_id",
+                    "model_version",
+                    "probability_yes",
+                    "probability_no",
+                    "kalshi_yes_ask",
+                    "kalshi_no_ask",
+                    "yes_edge",
+                    "no_edge",
+                    "action",
+                    "recommended_position",
+                )
+            },
+        )
 
-    def prices(self, kind: Literal["spot", "comex"] = "spot", *,
-               start: datetime | None = None, end: datetime | None = None) -> list[PricePoint]:
+    def prices(
+        self,
+        kind: Literal["spot", "comex"] = "spot",
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[PricePoint]:
         table = SpotObservation if kind == "spot" else ComexObservation
         query = select(table).order_by(table.timestamp, table.available_at, table.id)
         if start is not None:
@@ -203,14 +273,21 @@ class Database:
             return [PricePoint.model_validate(row.payload) for row in session.scalars(query)]
 
     def markets(self, market_id: str | None = None) -> list[MarketWindow]:
-        query = select(MarketObservation).order_by(MarketObservation.available_at, MarketObservation.id)
+        query = select(MarketObservation).order_by(
+            MarketObservation.available_at, MarketObservation.id
+        )
         if market_id:
             query = query.where(MarketObservation.market_id == market_id)
         with Session(self.engine) as session:
             return [MarketWindow.model_validate(row.payload) for row in session.scalars(query)]
 
-    def books(self, market_id: str | None = None, *,
-              start: datetime | None = None, end: datetime | None = None) -> list[BookSnapshot]:
+    def books(
+        self,
+        market_id: str | None = None,
+        *,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[BookSnapshot]:
         table = OrderBookObservation
         query = select(table).order_by(table.timestamp, table.available_at, table.id)
         if market_id:
